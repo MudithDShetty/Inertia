@@ -1,0 +1,27 @@
+---
+description: PhysicsLang project context — read Todo.md for full roadmap and current priorities
+alwaysApply: true
+---
+
+# PhysicsLang / Inertia Project
+
+This workspace is **PhysicsLang** — a standalone `.phys` compiled language for all of physics, with Python FFI.
+
+## Always read first
+
+- **[Todo.md](Todo.md)** — master task list for every layer and phase (compiler, quantum, molecular, CFD, lab instrumentation, viz, interop, hardware). Check status before starting work; update checkboxes when completing items.
+- **Plan:** `.cursor/plans/physicslang_hub_plan_0e35861e.plan.md` — architecture decisions and phased rollout.
+
+## Key decisions (do not reverse without user approval)
+
+- Standalone `.phys` language + Python FFI (not Taichi-style embedded DSL)
+- First MVP vertical: **quantum computing** (Qiskit / PennyLane)
+- Compiler: Rust + Tree-sitter + LLVM 18+
+- PhysicsLab (lab instrumentation) is a **separate IDE extension**, not core compiler
+- PhysicsOS is **deferred indefinitely**
+
+## 9-layer stack
+
+IDE → Compiler (SI units, autodiff, parallelism) → PhysicsMath → PhysicsSim (CFD/FEM/MD/MC/EM) → PhysicsAtom → PhysicsViz → PhysicsLab → Interop → Hardware (CPU/CUDA/Metal/MPI)
+
+When implementing features, place code in the crate/path listed in Todo.md's architecture table.

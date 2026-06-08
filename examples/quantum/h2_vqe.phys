@@ -1,0 +1,18 @@
+// H2 VQE — molecular Hamiltonian ground-state energy
+
+qreg q[2]
+
+let H = -0.39 * X(0) @ X(1) + 0.18 * Z(0) + 0.18 * Z(1)
+
+@differentiable
+fn energy(theta: Angle[4]) -> Energy {
+    RY(theta, 0)
+    RY(theta, 1)
+    CNOT(0, 1)
+    let circuit = ansatz(q, theta)
+    return expect(circuit, H)
+}
+
+fn main() -> Energy {
+    return energy(0.1)
+}

@@ -1,0 +1,24 @@
+[package]
+name = "physlang-py"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Python bindings for PhysicsLang"
+
+[lib]
+name = "physlang_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+physlang-parser.workspace = true
+physlang-types.workspace = true
+physlang-mir.workspace = true
+physlang-runtime.workspace = true
+physlang-quantum.workspace = true
+physlang-math.workspace = true
+physlang-interop.workspace = true
+physlang-viz.workspace = true
+pyo3 = { version = "0.22", features = ["extension-module"] }
+serde_json.workspace = true
+
+[dev-dependencies]

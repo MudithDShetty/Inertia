@@ -1,0 +1,12 @@
+// PhysicsLang math standard library — interfaces for PhysicsMath engine
+
+fn dot(a: Float, b: Float) -> Float {
+    return a * b
+}
+
+fn norm2(v: Float) -> Float {
+    return v * v
+}
+
+// LA, FFT, and special functions are provided via Python/Rust FFI:
+//   from physlang.math import matmul, solve, fft, trapezoid

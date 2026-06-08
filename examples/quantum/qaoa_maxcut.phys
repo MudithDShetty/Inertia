@@ -1,0 +1,18 @@
+// QAOA MaxCut demo
+
+qreg q[2]
+
+@differentiable
+fn qaoa_energy(params: Angle[2]) -> Energy {
+    RZ(params, 0)
+    RZ(params, 1)
+    RX(params, 0)
+    CNOT(0, 1)
+    let H = Z(0) @ Z(1)
+    let circuit = ansatz(q, params)
+    return expect(circuit, H)
+}
+
+fn main() -> Energy {
+    return qaoa_energy(0.4)
+}

@@ -1,0 +1,15 @@
+// CODATA 2018 physical constants (SI) — see also stdlib/core.phys
+
+let c: Float = 299792458.0              // speed of light (m/s)
+let h: Float = 6.62607015e-34           // Planck constant (J·s)
+let hbar: Float = 1.054571817e-34       // reduced Planck (J·s)
+let e: Float = 1.602176634e-19          // elementary charge (C)
+let m_e: Float = 9.1093837015e-31       // electron mass (kg)
+let m_p: Float = 1.67262192369e-27      // proton mass (kg)
+let k_B: Float = 1.380649e-23           // Boltzmann constant (J/K)
+let N_A: Float = 6.02214076e23          // Avogadro constant (1/mol)
+let G: Float = 6.67430e-11              // gravitational constant (m³/kg/s²)
+let mu_0: Float = 1.25663706212e-6      // vacuum permeability (N/A²)
+let epsilon_0: Float = 8.8541878128e-12  // vacuum permittivity (F/m)
+let a_0: Float = 5.29177210903e-11      // Bohr radius (m)
+let E_h: Float = 4.3597447222071e-18    // Hartree energy (J)

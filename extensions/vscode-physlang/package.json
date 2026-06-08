@@ -1,0 +1,37 @@
+{
+  "name": "physlang",
+  "displayName": "PhysicsLang",
+  "description": "Syntax highlighting and LSP for .phys files",
+  "version": "0.1.0",
+  "publisher": "physlang",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Programming Languages"],
+  "main": "./out/extension.js",
+  "activationEvents": ["onLanguage:physlang"],
+  "contributes": {
+    "languages": [{
+      "id": "physlang",
+      "aliases": ["PhysicsLang", "physlang"],
+      "extensions": [".phys"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "physlang",
+      "scopeName": "source.physlang",
+      "path": "./syntaxes/physlang.tmLanguage.json"
+    }],
+    "commands": [{
+      "command": "physlang.check",
+      "title": "PhysicsLang: Check File"
+    }]
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -watch -p ."
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0"
+  }
+}

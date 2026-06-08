@@ -1,0 +1,12 @@
+[package]
+name = "physlang-interop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Legacy C/Fortran FFI bridge for PhysicsLang"
+
+[dependencies]
+thiserror.workspace = true
+
+[build-dependencies]
+cc = "1"

@@ -1,0 +1,15 @@
+[package]
+name = "physlang-mir"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "PhysicsLang MIR lowering and autodiff transforms"
+
+[dependencies]
+physlang-parser.workspace = true
+physlang-types.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+indexmap.workspace = true
+
+[dev-dependencies]

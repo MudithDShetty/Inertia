@@ -1,0 +1,8 @@
+@python.import("qiskit")
+fn run_aer(circ: Circuit) -> Result {
+    return sample(circ, 1024)
+}
+
+fn main() -> Int {
+    return 0
+}

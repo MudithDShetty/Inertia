@@ -1,0 +1,22 @@
+[package]
+name = "physlang-math"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "PhysicsMath — dense LA, FFT, numerical calculus"
+
+[dependencies]
+ndarray = "0.16"
+faer = { version = "0.19", default-features = false, features = ["std", "rayon"] }
+rustfft = "6"
+num-complex = "0.4"
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "matmul"
+harness = false

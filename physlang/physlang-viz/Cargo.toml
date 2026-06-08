@@ -1,0 +1,22 @@
+[package]
+name = "physlang-viz"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "PhysicsLang visualization (circuit diagrams, plots IR)"
+
+[features]
+default = []
+wgpu = ["dep:wgpu", "dep:pollster", "dep:png", "dep:bytemuck"]
+
+[dependencies]
+physlang-quantum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+wgpu = { version = "24", optional = true }
+pollster = { version = "0.4", optional = true }
+png = { version = "0.17", optional = true }
+bytemuck = { version = "1", optional = true, features = ["derive"] }
+
+[dev-dependencies]

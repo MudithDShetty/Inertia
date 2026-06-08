@@ -1,0 +1,18 @@
+[package]
+name = "physlang-llvm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "PhysicsLang LLVM IR codegen (pseudo-IR; native LLVM via feature when available)"
+
+[dependencies]
+physlang-mir.workspace = true
+physlang-types.workspace = true
+thiserror.workspace = true
+
+[features]
+default = []
+# Native LLVM via inkwell — enable when LLVM is installed on the system
+llvm = []
+
+[dev-dependencies]

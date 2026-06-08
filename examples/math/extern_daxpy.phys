@@ -1,0 +1,8 @@
+// Example: declare legacy C/Fortran-compatible extern (type-checked stub)
+// Runtime execution via Python: from physlang.interop import daxpy
+
+extern c fn daxpy(alpha: Float, x: Float, y: Float) -> Float
+
+fn main() -> Int {
+    return 0
+}

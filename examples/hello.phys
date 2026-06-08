@@ -1,0 +1,7 @@
+// PhysicsLang hello world - SI unit checking demo
+
+fn main() -> Int {
+    let v: Velocity = 9.8 m/s
+    let ke: Energy = 1.0 J
+    return 0
+}

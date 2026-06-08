@@ -1,0 +1,63 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "PhysicsLang",
+  "scopeName": "source.physlang",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#attributes" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#gates" },
+    { "include": "#numbers" },
+    { "include": "#strings" },
+    { "include": "#functions" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [{ "name": "comment.line.double-slash.physlang", "match": "//.*$" }]
+    },
+    "attributes": {
+      "patterns": [{
+        "name": "meta.attribute.physlang",
+        "match": "@(differentiable|python\\.import|distributed|gpu|discretize|parallel)\\b"
+      }]
+    },
+    "keywords": {
+      "patterns": [{
+        "name": "keyword.control.physlang",
+        "match": "\\b(fn|let|return|qreg|extern|if|else|true|false)\\b"
+      }]
+    },
+    "types": {
+      "patterns": [{
+        "name": "storage.type.physlang",
+        "match": "\\b(Int|Float|Bool|String|Velocity|Force|Mass|Energy|Action|Angle|Qubit|QReg|Gate|Circuit|Hamiltonian|Observable|Result|Void)\\b"
+      }]
+    },
+    "gates": {
+      "patterns": [{
+        "name": "support.function.quantum.physlang",
+        "match": "\\b(H|X|Y|Z|S|T|CNOT|CZ|SWAP|RX|RY|RZ|U3|expect|sample|ansatz)\\b"
+      }]
+    },
+    "numbers": {
+      "patterns": [{
+        "name": "constant.numeric.physlang",
+        "match": "\\b\\d+(\\.\\d+)?([eE][+-]?\\d+)?\\b"
+      }]
+    },
+    "strings": {
+      "patterns": [{
+        "name": "string.quoted.double.physlang",
+        "begin": "\"", "end": "\"",
+        "patterns": [{ "name": "constant.character.escape.physlang", "match": "\\\\." }]
+      }]
+    },
+    "functions": {
+      "patterns": [{
+        "name": "entity.name.function.physlang",
+        "match": "(?<=fn\\s+)\\w+"
+      }]
+    }
+  }
+}

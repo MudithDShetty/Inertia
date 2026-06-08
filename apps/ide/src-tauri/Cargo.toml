@@ -1,0 +1,27 @@
+[package]
+name = "physlang-ide"
+version = "0.1.0"
+edition = "2021"
+description = "PhysicsLang desktop IDE (Tauri + Monaco)"
+
+[lib]
+name = "physlang_ide_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[[bin]]
+name = "physlang-ide"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+physlang-runtime = { path = "../../../physlang/physlang-runtime" }
+physlang-parser = { path = "../../../physlang/physlang-parser" }
+physlang-types = { path = "../../../physlang/physlang-types" }
+physlang-lsp = { path = "../../../physlang/physlang-lsp" }
+physlang-viz = { path = "../../../physlang/physlang-viz", features = ["wgpu"] }
