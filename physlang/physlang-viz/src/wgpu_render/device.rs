@@ -11,6 +11,18 @@ pub fn create_device() -> Result<GpuDevice, String> {
     pollster::block_on(create_device_async())
 }
 
+/// Reuse a process-wide wgpu device (avoids adapter init on every PNG frame).
+pub fn shared_device() -> Result<&'static GpuDevice, String> {
+    static POOL: std::sync::OnceLock<GpuDevice> = std::sync::OnceLock::new();
+    if let Some(gpu) = POOL.get() {
+        return Ok(gpu);
+    }
+    let gpu = create_device()?;
+    let _ = POOL.set(gpu);
+    POOL.get()
+        .ok_or_else(|| "wgpu device pool init failed".to_string())
+}
+
 async fn create_device_async() -> Result<GpuDevice, String> {
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
         backends: wgpu::Backends::all(),

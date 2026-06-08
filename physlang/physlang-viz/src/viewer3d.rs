@@ -73,7 +73,7 @@ impl WgpuViewerStub {
     #[cfg(feature = "wgpu")]
     pub fn render_frame(&self, camera: crate::OrbitCamera) -> Result<Vec<u8>, String> {
         if let Some(mol) = self.scene.molecules.first() {
-            return crate::render_molecule_png(mol, &camera);
+            return crate::render_molecule_png(mol, &camera, crate::MolRenderStyle::BallAndStick);
         }
         if let Some(field) = self.scene.fields.first() {
             let z = field.shape[2] / 2;
@@ -145,7 +145,9 @@ pub fn infer_bonds(mol: &mut MoleculeGeometry) {
             let dy = a.y - b.y;
             let dz = a.z - b.z;
             let dist = (dx * dx + dy * dy + dz * dz).sqrt();
-            let cutoff = (covalent_radius(a.element) + covalent_radius(b.element)) * 1.15;
+            let cutoff = (crate::elements::covalent_radius(a.element)
+                + crate::elements::covalent_radius(b.element))
+                * 1.15;
             if dist > 0.4 && dist <= cutoff {
                 bonds.push([i, j]);
             }
@@ -155,42 +157,27 @@ pub fn infer_bonds(mol: &mut MoleculeGeometry) {
 }
 
 pub fn element_symbol(z: u8) -> &'static str {
-    match z {
-        1 => "H",
-        2 => "He",
-        6 => "C",
-        7 => "N",
-        8 => "O",
-        9 => "F",
-        11 => "Na",
-        12 => "Mg",
-        15 => "P",
-        16 => "S",
-        17 => "Cl",
-        18 => "Ar",
-        26 => "Fe",
-        29 => "Cu",
-        30 => "Zn",
-        _ => "X",
-    }
-}
-
-fn covalent_radius(z: u8) -> f64 {
-    match z {
-        1 => 0.31,
-        6 => 0.76,
-        7 => 0.71,
-        8 => 0.66,
-        9 => 0.57,
-        16 => 1.05,
-        17 => 1.02,
-        _ => 0.75,
-    }
+    crate::elements::z_to_symbol(z)
 }
 
 /// Parse molecular structure by format sniffing or caller hint.
 pub fn parse_structure(source: &str, path_hint: Option<&str>) -> Result<MoleculeGeometry, String> {
-    let hint = path_hint.unwrap_or("");
+    let hint = path_hint.unwrap_or("").to_ascii_lowercase();
+    if hint.ends_with(".fchk") {
+        return crate::fchk::parse_fchk_geometry(source);
+    }
+    if hint.ends_with(".log") || source.contains("Standard orientation:") {
+        if let Ok(log) = crate::gaussian_log::parse_gaussian_log(source) {
+            if let Some(geo) = log.geometry {
+                return Ok(geo);
+            }
+        }
+    }
+    if hint.ends_with(".gjf") || hint.ends_with(".com") || source.trim_start().starts_with('#') {
+        if let Ok(job) = crate::gjf::parse_gjf(source) {
+            return Ok(job.geometry);
+        }
+    }
     if hint.ends_with(".pdb") || source.contains("ATOM  ") || source.contains("HETATM") {
         return crate::pdb::parse_pdb_with_bonds(source);
     }
@@ -198,14 +185,5 @@ pub fn parse_structure(source: &str, path_hint: Option<&str>) -> Result<Molecule
 }
 
 fn element_symbol_to_z(sym: &str) -> Result<u8, String> {
-    match sym {
-        "H" => Ok(1),
-        "C" => Ok(6),
-        "N" => Ok(7),
-        "O" => Ok(8),
-        "F" => Ok(9),
-        "S" => Ok(16),
-        "Cl" => Ok(17),
-        other => Err(format!("xyz: unknown element '{other}'")),
-    }
+    crate::elements::symbol_to_z(sym).map_err(|e| format!("xyz: {e}"))
 }

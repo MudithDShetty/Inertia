@@ -125,7 +125,7 @@ Status key: `[ ]` not started · `[~]` in progress · `[x]` done
 - [x] `physlang-lsp` crate (or submodule)
 - [x] Diagnostics: type errors, unit errors inline
 - [x] Hover documentation for gates and types
-- [ ] Go-to-definition for functions and stdlib symbols
+- [x] Go-to-definition for functions and stdlib symbols (user symbols + stdlib F12)
 
 ### Phase 1 exit criteria
 - [x] All three quantum examples run on Qiskit Aer (H₂ VQE validated; QAOA/Grover via native interpreter)
@@ -205,24 +205,38 @@ Status key: `[ ]` not started · `[~]` in progress · `[x]` done
 - [x] Project explorer: `.phys` files, stdlib, examples
 - [~] Integrated terminal
 - [ ] Debugger stub: breakpoints, variable inspect (LSP DAP)
-- [ ] Job manager panel: queue, status, logs for long simulations
+- [~] Job manager panel: queue, status, logs for long simulations (queue + cancel + live stderr)
 - [ ] Package hub: browse/install physics packages (registry stub)
 
 ### LSP — full feature set
-- [~] Autocomplete for stdlib, user symbols
-- [ ] Rename symbol
-- [ ] Find references
-- [ ] Code actions: import missing unit, fix dimension error
+- [~] Autocomplete for stdlib, user symbols (stdlib indexed from project root)
+- [~] Rename symbol
+- [~] Find references
+- [x] Code actions: import missing unit, fix dimension error (quick-fix stubs)
 - [~] Formatting (`phys fmt`)
+- [x] Go-to-definition (user symbols + stdlib, F12)
 
 ### PhysicsViz — 3D engine
 - [x] wgpu offscreen rendering backend (Tauri PNG frames; winit window deferred)
 - [x] 3D field renderer: scalar Z-slice plane in 3D + 2D heatmap fallback
-- [~] Isosurface extraction (marching cubes stub)
+- [x] Isosurface extraction (marching cubes)
 - [~] Volume rendering stub
 - [x] Camera controls: orbit, zoom (pan deferred)
 - [ ] Time-series playback: animate simulation frames
 - [ ] Export: PNG, MP4, VTK
+
+### PhysicsViz — GaussView-style (quantum chemistry GUI)
+- [x] Gaussian input (.gjf / .com): route, title, charge/mult, Cartesian + Z-matrix
+- [x] Display modes: ball-and-stick, wireframe, space-fill, stick
+- [x] Gaussian output (.log): SCF energies + standard-orientation geometry
+- [x] Gaussian cube (.cube): density grid → isosurface viewer
+- [x] Formatted checkpoint (.fchk): geometry, freq list, density/MO flags
+- [x] Normal-mode animation from log/fchk (mode select + animate)
+- [x] Full fchk density → grid → orbital/ESP surfaces (GTO density + Alpha MO GTO grid + quantum Hartree ESP)
+- [x] Measure distance, angle, dihedral (interactive picking — canvas + wgpu ray pick)
+- [ ] Structure builder / Z-matrix editor in IDE
+- [~] Submit Gaussian/ORCA jobs (job manager integration)
+- [x] Orbital / density / ESP isosurface viewer (GaussView Surfaces — Density/HOMO/LUMO/MO dual-lobe/ESP toolbar)
 
 ### PhysicsViz — molecular viewer
 - [~] Parse PDB, CIF, XYZ file formats
@@ -249,10 +263,11 @@ Status key: `[ ]` not started · `[~]` in progress · `[x]` done
 - [x] Molecular graph data structure (atoms + adjacency)
 
 ### PhysicsAtom — quantum chemistry (classical, not quantum computing)
+- [~] Gaussian .gjf / .com input parser (Cartesian + Z-matrix)
 - [ ] Hartree-Fock stub (integrate PySCF via Python FFI)
 - [ ] DFT interface stub (call external codes: ORCA, Gaussian file prep)
 - [ ] Basis set library: STO-3G, 6-31G* (data files)
-- [ ] Electron density isosurface visualization hook
+- [~] Electron density isosurface visualization hook (.cube → field isosurface)
 
 ### Phase 3 exit criteria
 - [x] IDE opens project, shows inline unit errors
@@ -452,7 +467,8 @@ Status key: `[ ]` not started · `[~]` in progress · `[x]` done
 ## Cross-cutting concerns (all phases)
 
 ### Documentation
-- [ ] Language reference manual
+- [~] Language reference manual — [docs/language-reference.md](docs/language-reference.md) + IDE **Docs** button
+- [~] Quick start — [docs/quickstart.md](docs/quickstart.md)
 - [ ] Standard library docs (auto-generated from `.phys` doc comments)
 - [ ] Tutorials: quantum, CFD, MD, lab instrumentation
 - [ ] Migration guides: from Python, Julia, Fortran
@@ -491,10 +507,12 @@ Status key: `[ ]` not started · `[~]` in progress · `[x]` done
 
 **Active phase:** Phase 3 — IDE shell + PhysicsViz + PhysicsAtom  
 **Next actionable items:**
-1. LSP: rename, find references, user-symbol completion
-2. PhysicsAtom: expand periodic table; Open Babel FFI stub
-3. PhysicsViz: volume rendering, VTK I/O, time-series playback
+1. Expand docs: stdlib auto-docs, tutorial notebooks
+2. Volume rendering stub + export PNG/MP4/VTK
+3. Structure builder / Z-matrix editor
+4. Notebook interface
+5. LSP: richer code actions (unit suffix on literals)
 
 ---
 
-*Last updated: 2026-06-08. Update this file as items are completed.*
+*Last updated: 2026-06-08 (Phase 3: quantum ESP, dual-lobe MO, LSP stdlib goto + code actions).*

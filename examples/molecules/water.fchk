@@ -1,0 +1,16 @@
+Water sto-3g example
+    1    1    0
+    3
+    8    1    1
+    0    1
+Number of atoms                            I                3
+Number of electrons                         I                10
+Atomic numbers                             I   N=           3
+           8           1           1
+Current cartesian coordinates              R   N=           9
+  0.000000   0.000000   0.117000  -0.757000   0.000000  -0.468000
+   0.757000   0.000000  -0.468000
+Vibrational frequencies                    R   N=           3
+   1656.7   3832.4   3942.1
+Total SCF Density                          R   N=           6
+   0.0   0.0   0.0   0.0   0.0   0.0

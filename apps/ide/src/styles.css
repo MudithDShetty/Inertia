@@ -66,6 +66,16 @@ body,
   white-space: nowrap;
 }
 
+.toolbar .job-status {
+  font-size: 11px;
+  color: #858585;
+  margin-right: 8px;
+}
+
+.toolbar .job-status.running {
+  color: #ffd700;
+}
+
 .workspace {
   display: flex;
   flex: 1;
@@ -139,7 +149,8 @@ body,
 }
 
 .viewer-pane {
-  width: 320px;
+  width: 440px;
+  min-width: 360px;
   background: #1a1a2e;
   border-left: 1px solid #3c3c3c;
   display: flex;
@@ -210,6 +221,19 @@ body,
   cursor: grabbing;
 }
 
+#molecule-canvas.measure-overlay,
+#field-canvas.measure-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 3;
+  pointer-events: auto;
+  background: transparent !important;
+  cursor: crosshair;
+}
+
 #molecule-canvas,
 #field-canvas {
   display: block;
@@ -240,6 +264,15 @@ body,
   flex: 1;
 }
 
+.slice-bar select {
+  background: #3c3c3c;
+  color: #ccc;
+  border: 1px solid #555;
+  border-radius: 3px;
+  font-size: 10px;
+  max-width: 180px;
+}
+
 .field-mode-btn {
   background: #3c3c3c;
   color: #ccc;
@@ -268,12 +301,33 @@ body,
   color: #dcdcaa;
 }
 
+.file-tree button[data-path$=".gjf"],
+.file-tree button[data-path$=".com"] {
+  color: #c586c0;
+}
+
+.chem-bar {
+  padding: 4px 10px;
+  background: #2d2d30;
+  border-top: 1px solid #3c3c3c;
+  font-size: 10px;
+  color: #dcdcaa;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chem-bar.hidden {
+  display: none;
+}
+
 .output-panel {
-  height: 180px;
+  height: 240px;
   background: #1e1e1e;
   border-top: 1px solid #3c3c3c;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .output-panel h2 {
@@ -305,4 +359,37 @@ body,
 
 #output .success {
   color: #4ec9b0;
+}
+
+.job-panel {
+  border-top: 1px solid #3c3c3c;
+  display: flex;
+  flex-direction: column;
+  max-height: 120px;
+  min-height: 72px;
+}
+
+.job-panel.hidden {
+  display: none;
+}
+
+.job-panel h2 {
+  margin: 0;
+  padding: 4px 12px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #bbbbbb;
+  background: #252526;
+}
+
+.job-panel-body {
+  flex: 1;
+  margin: 0;
+  padding: 6px 12px;
+  overflow: auto;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 11px;
+  white-space: pre-wrap;
+  color: #9cdcfe;
 }

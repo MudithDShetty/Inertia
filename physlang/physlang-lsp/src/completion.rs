@@ -55,29 +55,42 @@ const ITEMS: &[(&str, &str, CompletionKind)] = &[
     ("@parallel", "parallel loop", CompletionKind::Attribute),
 ];
 
-pub fn completions_for_prefix(prefix: &str) -> Vec<CompletionItem> {
+pub fn completions_for_prefix(source: &str, prefix: &str) -> Vec<CompletionItem> {
     let p = prefix.trim();
-    if p.is_empty() {
-        return ITEMS
-            .iter()
-            .map(|(label, detail, kind)| CompletionItem {
-                label: (*label).to_string(),
-                detail: Some((*detail).to_string()),
-                insert_text: (*label).to_string(),
-                kind: kind.clone(),
-            })
-            .collect();
-    }
-    ITEMS
+    let mut items: Vec<CompletionItem> = ITEMS
         .iter()
-        .filter(|(label, _, _)| label.to_lowercase().starts_with(&p.to_lowercase()))
+        .filter(|(label, _, _)| {
+            p.is_empty() || label.to_lowercase().starts_with(&p.to_lowercase())
+        })
         .map(|(label, detail, kind)| CompletionItem {
             label: (*label).to_string(),
             detail: Some((*detail).to_string()),
             insert_text: (*label).to_string(),
             kind: kind.clone(),
         })
-        .collect()
+        .collect();
+
+    for (name, sym_kind) in crate::symbols::user_completions_for_prefix(source, prefix) {
+        if items.iter().any(|i| i.label == name) {
+            continue;
+        }
+        let kind = match sym_kind {
+            crate::symbols::SymbolKind::Function | crate::symbols::SymbolKind::Extern => {
+                CompletionKind::Function
+            }
+            crate::symbols::SymbolKind::QReg => CompletionKind::Type,
+            crate::symbols::SymbolKind::Parameter | crate::symbols::SymbolKind::Variable => {
+                CompletionKind::Function
+            }
+        };
+        items.push(CompletionItem {
+            label: name.clone(),
+            detail: Some("user symbol".into()),
+            insert_text: name,
+            kind,
+        });
+    }
+    items
 }
 
 #[cfg(test)]
@@ -86,14 +99,21 @@ mod tests {
 
     #[test]
     fn filters_by_prefix() {
-        let items = completions_for_prefix("En");
+        let items = completions_for_prefix("", "En");
         assert!(items.iter().any(|i| i.label == "Energy"));
         assert!(!items.iter().any(|i| i.label == "H"));
     }
 
     #[test]
+    fn includes_user_symbols() {
+        let src = "fn foo(x: Float) -> Float { let y = x; y }";
+        let items = completions_for_prefix(src, "f");
+        assert!(items.iter().any(|i| i.label == "foo"));
+    }
+
+    #[test]
     fn gates_available() {
-        let items = completions_for_prefix("CN");
+        let items = completions_for_prefix("", "CN");
         assert!(items.iter().any(|i| i.label == "CNOT"));
     }
 }

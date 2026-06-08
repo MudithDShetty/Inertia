@@ -60,16 +60,47 @@ impl OrbitCamera {
 
 /// Auto-fit distance from axis-aligned bounds (min/max triples).
 pub fn bounds_center_radius(min: [f32; 3], max: [f32; 3]) -> ([f32; 3], f32) {
+    bounds_center_radius_fov(min, max, 45.0)
+}
+
+/// Fit orbit distance from AABB; `fov_y_deg` is vertical field of view.
+pub fn bounds_center_radius_fov(min: [f32; 3], max: [f32; 3], fov_y_deg: f32) -> ([f32; 3], f32) {
     let center = [
         (min[0] + max[0]) * 0.5,
         (min[1] + max[1]) * 0.5,
         (min[2] + max[2]) * 0.5,
     ];
-    let dx = max[0] - min[0];
-    let dy = max[1] - min[1];
-    let dz = max[2] - min[2];
-    let radius = (dx * dx + dy * dy + dz * dz).sqrt().max(0.5) * 0.55;
-    (center, radius * 2.2)
+    let dx = (max[0] - min[0]).max(1e-6);
+    let dy = (max[1] - min[1]).max(1e-6);
+    let dz = (max[2] - min[2]).max(1e-6);
+    let extent = (dx * dx + dy * dy + dz * dz).sqrt().max(0.4);
+    let half_fov = (fov_y_deg.to_radians() * 0.5).max(0.01);
+    let distance = (extent * 0.5) / half_fov.tan() * 1.65;
+    (center, distance.max(1.5))
+}
+
+/// Fit from atomic positions + per-atom radii (matches 2D canvas framing better).
+pub fn molecule_orbit_fit(atoms: &[([f32; 3], f32)], fov_y_deg: f32, padding: f32) -> ([f32; 3], f32) {
+    if atoms.is_empty() {
+        return ([0.0, 0.0, 0.0], 4.0);
+    }
+    let n = atoms.len() as f32;
+    let center = atoms.iter().fold([0.0f32; 3], |acc, (p, _)| {
+        [acc[0] + p[0], acc[1] + p[1], acc[2] + p[2]]
+    });
+    let center = [center[0] / n, center[1] / n, center[2] / n];
+    let mut max_r = 0.0f32;
+    for (p, rad) in atoms {
+        let dx = p[0] - center[0];
+        let dy = p[1] - center[1];
+        let dz = p[2] - center[2];
+        let d = (dx * dx + dy * dy + dz * dz).sqrt() + *rad;
+        max_r = max_r.max(d);
+    }
+    max_r = max_r.max(0.4);
+    let half_fov = (fov_y_deg.to_radians() * 0.5).max(0.01);
+    let distance = max_r / half_fov.tan() * padding.max(1.2);
+    (center, distance.max(1.5))
 }
 
 pub fn mat4_mul(a: [[f32; 4]; 4], b: [[f32; 4]; 4]) -> [[f32; 4]; 4] {
@@ -130,6 +161,10 @@ fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
 fn normalize(v: [f32; 3]) -> [f32; 3] {
     let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt().max(1e-8);
     [v[0] / len, v[1] / len, v[2] / len]
+}
+
+pub fn normalize3(v: [f32; 3]) -> [f32; 3] {
+    normalize(v)
 }
 
 #[cfg(test)]

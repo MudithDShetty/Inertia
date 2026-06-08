@@ -1,0 +1,18 @@
+// IDE / LSP smoke test — open this in the desktop IDE after Open Folder → repo root
+//
+// Try:
+//   - Autocomplete: type `bel` → bell (stdlib/quantum.phys)
+//   - F12 on `abs` → stdlib/core.phys
+//   - F12 on `demo_energy` → this function
+//   - Lightbulb on bad_units line → dimension mismatch quick-fix
+//   - Rename / Find references on `theta`
+
+fn demo_energy(theta: Float) -> Float {
+    let x = abs(theta)
+    return x
+}
+
+fn bad_units() -> Force {
+    let x: Mass = 1.0
+    return x
+}

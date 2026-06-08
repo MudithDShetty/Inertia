@@ -1,9 +1,10 @@
 //! wgpu ball-and-stick molecule renderer (offscreen PNG).
 
-use crate::camera::{bounds_center_radius, mat4_mul, OrbitCamera};
+use crate::camera::{mat4_mul, molecule_orbit_fit, OrbitCamera};
+use crate::gjf::{styled_geometry, MolRenderStyle};
 use crate::viewer3d::{element_symbol, MoleculeGeometry};
 use crate::wgpu_render::device::{
-    create_device, create_mesh_pipeline, draw_mesh, upload_camera_bind_group, upload_mesh,
+    shared_device, create_mesh_pipeline, draw_mesh, upload_camera_bind_group, upload_mesh,
     GpuVertex, OffscreenTarget,
 };
 
@@ -25,22 +26,35 @@ pub fn cpk_color(element: u8) -> [f32; 3] {
 pub fn render_molecule_png(
     mol: &MoleculeGeometry,
     camera: &OrbitCamera,
+    style: MolRenderStyle,
 ) -> Result<Vec<u8>, String> {
+    let mol = styled_geometry(mol, style);
     if mol.atoms.is_empty() {
         return Err("molecule has no atoms".into());
     }
-    let gpu = create_device()?;
+    let gpu = shared_device()?;
     let (pipeline, bgl) = create_mesh_pipeline(&gpu, "molecule");
     let target = OffscreenTarget::new(&gpu, camera.width, camera.height);
 
-    let (min, max) = molecule_bounds(mol);
-    let (center, distance) = bounds_center_radius(min, max);
+    let (min, max) = molecule_bounds(&mol);
+    let _ = (min, max);
+    let atom_data: Vec<([f32; 3], f32)> = mol
+        .atoms
+        .iter()
+        .map(|a| ([a.x as f32, a.y as f32, a.z as f32], a.radius as f32))
+        .collect();
+    let padding = match style {
+        MolRenderStyle::SpaceFill => 2.0,
+        MolRenderStyle::Wireframe => 1.5,
+        _ => 1.65,
+    };
+    let (center, distance) = molecule_orbit_fit(&atom_data, camera.fov_y_deg, padding);
     let view = camera.view_matrix(center, distance);
     let proj = camera.proj_matrix();
     let view_proj = mat4_mul(proj, view);
     let bind_group = upload_camera_bind_group(&gpu, &bgl, view_proj);
 
-    let (vertices, indices) = build_molecule_mesh(mol);
+    let (vertices, indices) = build_molecule_mesh(&mol, style);
     let (vb, ib, count) = upload_mesh(&gpu, &vertices, &indices);
     draw_mesh(
         &gpu,
@@ -71,9 +85,10 @@ fn molecule_bounds(mol: &MoleculeGeometry) -> ([f32; 3], [f32; 3]) {
     (min, max)
 }
 
-fn build_molecule_mesh(mol: &MoleculeGeometry) -> (Vec<GpuVertex>, Vec<u32>) {
+fn build_molecule_mesh(mol: &MoleculeGeometry, style: MolRenderStyle) -> (Vec<GpuVertex>, Vec<u32>) {
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
+    let draw_bonds = !matches!(style, MolRenderStyle::SpaceFill);
 
     for a in &mol.atoms {
         let color = cpk_color(a.element);
@@ -84,28 +99,35 @@ fn build_molecule_mesh(mol: &MoleculeGeometry) -> (Vec<GpuVertex>, Vec<u32>) {
             [a.x as f32, a.y as f32, a.z as f32],
             scale,
             color,
+            6,
             10,
-            14,
         );
     }
 
-    for bond in &mol.bonds {
-        let i = bond[0];
-        let j = bond[1];
-        if i >= mol.atoms.len() || j >= mol.atoms.len() {
-            continue;
+    if draw_bonds {
+        for bond in &mol.bonds {
+            let i = bond[0];
+            let j = bond[1];
+            if i >= mol.atoms.len() || j >= mol.atoms.len() {
+                continue;
+            }
+            let a = &mol.atoms[i];
+            let b = &mol.atoms[j];
+            let bond_r = match style {
+                MolRenderStyle::Wireframe => 0.04,
+                MolRenderStyle::Stick => 0.12,
+                _ => 0.08,
+            };
+            append_cylinder(
+                &mut vertices,
+                &mut indices,
+                [a.x as f32, a.y as f32, a.z as f32],
+                [b.x as f32, b.y as f32, b.z as f32],
+                bond_r,
+                [0.42, 0.42, 0.55],
+                8,
+            );
         }
-        let a = &mol.atoms[i];
-        let b = &mol.atoms[j];
-        append_cylinder(
-            &mut vertices,
-            &mut indices,
-            [a.x as f32, a.y as f32, a.z as f32],
-            [b.x as f32, b.y as f32, b.z as f32],
-            0.08,
-            [0.42, 0.42, 0.55],
-            8,
-        );
     }
 
     (vertices, indices)
@@ -249,7 +271,7 @@ mod tests {
             height: 256,
             ..Default::default()
         };
-        let png = render_molecule_png(&mol, &cam).expect("render");
+        let png = render_molecule_png(&mol, &cam, MolRenderStyle::BallAndStick).expect("render");
         assert_eq!(&png[0..8], &[137, 80, 78, 71, 13, 10, 26, 10]);
     }
 }

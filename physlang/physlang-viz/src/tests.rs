@@ -11,6 +11,14 @@ fn parses_xyz_water() {
 }
 
 #[test]
+fn parses_gjf_water() {
+    let gjf = include_str!("../../../examples/molecules/water.gjf");
+    let job = crate::parse_gjf(gjf).expect("water.gjf");
+    assert_eq!(job.geometry.atoms.len(), 3);
+    assert!(job.route.contains("B3LYP"));
+}
+
+#[test]
 fn renders_simple_circuit() {
     let mut c = CircuitIr::new(2, "test");
     c.add_gate(GateIr {

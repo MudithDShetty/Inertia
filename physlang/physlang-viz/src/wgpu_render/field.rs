@@ -2,10 +2,10 @@
 
 use crate::camera::{bounds_center_radius, mat4_mul, OrbitCamera};
 use crate::field_slice::{extract_slice, slice_to_rgba, SliceAxis};
-use crate::marching_cubes::extract_isosurface_stub;
+use crate::marching_cubes::extract_isosurface;
 use crate::viewer3d::ScalarField;
 use crate::wgpu_render::device::{
-    create_device, create_mesh_pipeline, draw_mesh, readback_png, upload_camera_bind_group,
+    create_mesh_pipeline, draw_mesh, readback_png, shared_device, upload_camera_bind_group,
     upload_mesh, GpuDevice, GpuVertex, OffscreenTarget,
 };
 
@@ -15,7 +15,7 @@ pub fn render_field_slice_3d_png(
     z_index: usize,
     camera: &OrbitCamera,
 ) -> Result<Vec<u8>, String> {
-    let gpu = create_device()?;
+    let gpu = shared_device()?;
     let slice = extract_slice(field, SliceAxis::Z, z_index)?;
     let rgba = slice_to_rgba(&slice);
     render_textured_quad_png(&gpu, field, z_index, &rgba, slice.width, slice.height, camera)
@@ -105,26 +105,69 @@ fn colored_quad_mesh(corners: &[([f32; 3], [f32; 3]); 4]) -> (Vec<GpuVertex>, Ve
     (verts, indices)
 }
 
-/// Render marching-cubes isosurface stub mesh in 3D.
+/// Render marching-cubes isosurface mesh in 3D.
 pub fn render_field_isosurface_png(
     field: &ScalarField,
     isovalue: f64,
     camera: &OrbitCamera,
 ) -> Result<Vec<u8>, String> {
-    let mesh = extract_isosurface_stub(field, isovalue, 2);
+    let mesh = extract_isosurface(field, isovalue);
     if mesh.vertices.is_empty() {
-        return Err("isosurface stub produced empty mesh".into());
+        return Err("isosurface produced empty mesh".into());
     }
-    let gpu = create_device()?;
+    render_colored_isosurface_meshes(&[(mesh, [0.2, 0.7, 0.95])], camera)
+}
+
+/// Render signed MO isosurface: red (+ψ) and blue (−ψ) lobes together (GaussView-style).
+pub fn render_field_mo_isosurface_png(
+    field: &ScalarField,
+    level: f64,
+    camera: &OrbitCamera,
+) -> Result<Vec<u8>, String> {
+    let t = level.clamp(0.01, 0.99);
+    let max_abs = field
+        .values
+        .iter()
+        .map(|v| v.abs())
+        .fold(0.0_f64, f64::max);
+    if max_abs < 1e-20 {
+        return Err("MO field has zero amplitude".into());
+    }
+    let iso = t * max_abs;
+    let pos = extract_isosurface(field, iso);
+    let neg = extract_isosurface(field, -iso);
+    if pos.vertices.is_empty() && neg.vertices.is_empty() {
+        return Err("MO isosurface produced empty mesh".into());
+    }
+    let mut layers = Vec::new();
+    if !pos.vertices.is_empty() {
+        layers.push((pos, [0.92, 0.22, 0.22]));
+    }
+    if !neg.vertices.is_empty() {
+        layers.push((neg, [0.22, 0.35, 0.92]));
+    }
+    render_colored_isosurface_meshes(&layers, camera)
+}
+
+fn render_colored_isosurface_meshes(
+    layers: &[(
+        crate::marching_cubes::IsoMesh,
+        [f32; 3],
+    )],
+    camera: &OrbitCamera,
+) -> Result<Vec<u8>, String> {
+    let gpu = shared_device()?;
     let (pipeline, bgl) = create_mesh_pipeline(&gpu, "field-iso");
     let target = OffscreenTarget::new(&gpu, camera.width, camera.height);
 
     let mut min = [f32::MAX; 3];
     let mut max = [f32::MIN; 3];
-    for v in &mesh.vertices {
-        for i in 0..3 {
-            min[i] = min[i].min(v[i]);
-            max[i] = max[i].max(v[i]);
+    for (mesh, _) in layers {
+        for v in &mesh.vertices {
+            for i in 0..3 {
+                min[i] = min[i].min(v[i]);
+                max[i] = max[i].max(v[i]);
+            }
         }
     }
     let (center, distance) = bounds_center_radius(min, max);
@@ -132,17 +175,23 @@ pub fn render_field_isosurface_png(
     let proj = camera.proj_matrix();
     let bind_group = upload_camera_bind_group(&gpu, &bgl, mat4_mul(proj, view));
 
-    let verts: Vec<GpuVertex> = mesh
-        .vertices
-        .iter()
-        .zip(mesh.normals.iter())
-        .map(|(p, n)| GpuVertex {
-            pos: *p,
-            normal: *n,
-            color: [0.2, 0.7, 0.95],
-        })
-        .collect();
-    let (vb, ib, count) = upload_mesh(&gpu, &verts, &mesh.indices);
+    let mut all_verts = Vec::new();
+    let mut all_indices = Vec::new();
+    let mut base = 0u32;
+    for (mesh, color) in layers {
+        for (p, n) in mesh.vertices.iter().zip(mesh.normals.iter()) {
+            all_verts.push(GpuVertex {
+                pos: *p,
+                normal: *n,
+                color: *color,
+            });
+        }
+        for idx in &mesh.indices {
+            all_indices.push(base + idx);
+        }
+        base += mesh.vertices.len() as u32;
+    }
+    let (vb, ib, count) = upload_mesh(&gpu, &all_verts, &all_indices);
     draw_mesh(
         &gpu,
         &target,
@@ -160,7 +209,7 @@ fn upload_rgba_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, Stri
     if rgba.len() != (width as usize) * (height as usize) * 4 {
         return Err("rgba buffer size mismatch".into());
     }
-    let gpu = create_device()?;
+    let gpu = shared_device()?;
     let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("field-slice"),
         size: wgpu::Extent3d {
@@ -227,10 +276,19 @@ mod tests {
     }
 
     #[test]
-    fn wgpu_field_png_non_empty() {
-        let field = demo_gaussian_field(16);
-        let png = render_field_slice_png(&field, 8).expect("wgpu render");
-        assert!(png.len() > 8);
+    fn field_mo_isosurface_png_non_empty() {
+        let mut field = demo_gaussian_field(16);
+        // Signed field: center positive, edges negative
+        let mid = field.values.len() / 2;
+        for (i, v) in field.values.iter_mut().enumerate() {
+            *v = if i < mid { 1.0 } else { -0.8 };
+        }
+        let cam = OrbitCamera {
+            width: 128,
+            height: 128,
+            ..Default::default()
+        };
+        let png = render_field_mo_isosurface_png(&field, 0.35, &cam).expect("mo iso");
         assert_eq!(&png[0..8], &[137, 80, 78, 71, 13, 10, 26, 10]);
     }
 }

@@ -1,12 +1,22 @@
 use physlang_lsp::{
-    completions_for_prefix, diagnostics_for_source, hover_for_position, CompletionKind,
-    DiagnosticSeverity,
+    code_actions_at, completions_for_prefix, definition_at_with_stdlib, diagnostics_for_source,
+    find_references_at, find_stdlib_dir, hover_for_position, index_stdlib_dir, rename_at,
+    CompletionKind, DiagnosticSeverity,
 };
 use physlang_runtime::compile_and_run;
 use physlang_viz::{
-    demo_gaussian_field, element_symbol, extract_slice, parse_structure,
-    render_field_isosurface_png, render_field_slice_3d_png, render_field_slice_png,
-    render_molecule_png, OrbitCamera, ScalarField, SliceAxis,
+    animate_geometry, cube_to_scalar_field, demo_gaussian_field, element_symbol, extract_slice,
+    fchk_density_field, fchk_esp_field, fchk_mo_field, parse_cube, parse_fchk, parse_gaussian_log,
+    parse_gjf, parse_log_vibrations, parse_structure, pick_molecule_atom,
+    render_field_isosurface_png, render_field_mo_isosurface_png, render_field_slice_3d_png,
+    render_field_slice_png, render_molecule_png, scalar_field_to_cube,
+    MolRenderStyle, OrbitCamera, ScalarField, SliceAxis, VibrationData,
+};
+mod chem_jobs;
+
+use chem_jobs::{
+    chem_job_cancel, chem_job_last_result as last_chem_job_result, chem_job_progress, enqueue_chem_job,
+    list_chem_backends, ChemBackendInfo, ChemJobEnqueueResult, ChemJobProgress, ChemJobResult,
 };
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -35,6 +45,29 @@ pub struct IdeHover {
 }
 
 #[derive(Serialize)]
+pub struct IdeLocation {
+    line: u32,
+    column: u32,
+    end_column: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct IdeCodeAction {
+    title: String,
+    edits: Vec<IdeTextEdit>,
+}
+
+#[derive(Serialize)]
+pub struct IdeTextEdit {
+    line: u32,
+    column: u32,
+    end_column: u32,
+    new_text: String,
+}
+
+#[derive(Serialize)]
 pub struct RunResult {
     stdout: Vec<String>,
     result: Option<String>,
@@ -60,11 +93,49 @@ pub struct IdeAtom {
 }
 
 #[derive(Serialize)]
+pub struct IdeChemMeta {
+    format: String,
+    title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    route: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    charge: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    multiplicity: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    coordinate_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    final_energy_hartree: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scf_cycles: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    n_frequencies: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    has_density: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    has_mos: Option<bool>,
+}
+
+#[derive(Serialize)]
 pub struct IdeMolecule {
     name: String,
     path: String,
     atoms: Vec<IdeAtom>,
     bonds: Vec<[usize; 2]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    chem: Option<IdeChemMeta>,
+}
+
+#[derive(Serialize)]
+pub struct IdeVibrationMode {
+    index: usize,
+    frequency_cm1: f64,
+}
+
+#[derive(Serialize)]
+pub struct IdeVibrationInfo {
+    path: String,
+    modes: Vec<IdeVibrationMode>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -129,15 +200,164 @@ fn list_phys_files(root: String) -> Result<Vec<ProjectFile>, String> {
     }
     let mut files = Vec::new();
     collect_project_files(&root_path, &mut files).map_err(|e| e.to_string())?;
+    append_stdlib_files(&root_path, &mut files);
     files.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(files)
+}
+
+fn append_stdlib_files(root: &Path, out: &mut Vec<ProjectFile>) {
+    let Some(stdlib_dir) = find_stdlib_dir(root) else {
+        return;
+    };
+    let Ok(entries) = fs::read_dir(&stdlib_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("phys") {
+            continue;
+        }
+        let Some(path_str) = path.to_str() else {
+            continue;
+        };
+        if out.iter().any(|f| f.path == path_str) {
+            continue;
+        }
+        let fname = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("file.phys");
+        out.push(ProjectFile {
+            name: format!("stdlib/{fname}"),
+            path: path_str.to_string(),
+            kind: "phys".into(),
+        });
+    }
 }
 
 #[tauri::command]
 fn parse_molecule_file(path: String) -> Result<IdeMolecule, String> {
     let source = fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path))?;
+    let lower = path.to_ascii_lowercase();
+    if lower.ends_with(".gjf") || lower.ends_with(".com") {
+        let job = parse_gjf(&source)?;
+        return Ok(molecule_to_ide_chem(&path, job));
+    }
+    if lower.ends_with(".log") {
+        let log = parse_gaussian_log(&source)?;
+        return Ok(molecule_to_ide_log(&path, log));
+    }
+    if lower.ends_with(".fchk") {
+        let fchk = parse_fchk(&source)?;
+        return Ok(molecule_to_ide_fchk(&path, fchk));
+    }
     let mol = parse_structure(&source, Some(&path))?;
     Ok(molecule_to_ide(&path, mol))
+}
+
+#[tauri::command]
+fn parse_gaussian_log_file(path: String) -> Result<IdeMolecule, String> {
+    let source = fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path))?;
+    let log = parse_gaussian_log(&source)?;
+    Ok(molecule_to_ide_log(&path, log))
+}
+
+#[tauri::command]
+fn load_cube_file(path: String) -> Result<IdeFieldSlice, String> {
+    let source = fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path))?;
+    let cube = parse_cube(&source)?;
+    let name = Path::new(&path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("cube")
+        .to_string();
+    let title = if cube.title[0].is_empty() {
+        name.clone()
+    } else {
+        cube.title[0].clone()
+    };
+    field_to_ide(&path, cube_to_scalar_field(&cube), title)
+}
+
+#[tauri::command]
+fn list_vibration_modes(path: String) -> Result<IdeVibrationInfo, String> {
+    let vib = load_vibration_data(&path)?;
+    Ok(IdeVibrationInfo {
+        path,
+        modes: vib
+            .modes
+            .iter()
+            .map(|m| IdeVibrationMode {
+                index: m.index,
+                frequency_cm1: m.frequency_cm1,
+            })
+            .collect(),
+    })
+}
+
+#[tauri::command]
+fn vibration_frame(path: String, mode_index: usize, phase: f64) -> Result<IdeMolecule, String> {
+    let vib = load_vibration_data(&path)?;
+    let mode = vib
+        .modes
+        .get(mode_index)
+        .ok_or_else(|| format!("mode index {mode_index} out of range"))?;
+    let animated = animate_geometry(&vib.equilibrium, mode, phase, 1.0);
+    Ok(molecule_to_ide(&path, animated))
+}
+
+fn load_vibration_data(path: &str) -> Result<VibrationData, String> {
+    let source = fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
+    let lower = path.to_ascii_lowercase();
+    if lower.ends_with(".fchk") {
+        let fchk = parse_fchk(&source)?;
+        return Ok(vibration_data_from_fchk(fchk));
+    }
+    if lower.ends_with(".log") {
+        let log = parse_gaussian_log(&source)?;
+        let geo = log
+            .geometry
+            .ok_or_else(|| "log: no geometry for vibration".to_string())?;
+        return Ok(parse_log_vibrations(&source, &geo));
+    }
+    Err("vibration: need .log or .fchk file".to_string())
+}
+
+fn vibration_data_from_fchk(fchk: physlang_viz::FchkFile) -> VibrationData {
+    use physlang_viz::NormalMode;
+    let geo = fchk.geometry.clone();
+    let modes: Vec<NormalMode> = if fchk.vibrational_frequencies_cm1.is_empty() {
+        parse_log_vibrations("", &geo).modes
+    } else {
+        fchk.vibrational_frequencies_cm1
+            .iter()
+            .enumerate()
+            .map(|(i, &f)| {
+                let stub = parse_log_vibrations("", &geo);
+                let disp = stub
+                    .modes
+                    .get(i)
+                    .map(|m| m.displacements.clone())
+                    .unwrap_or_default();
+                NormalMode {
+                    index: i,
+                    frequency_cm1: f,
+                    displacements: disp,
+                }
+            })
+            .collect()
+    };
+    VibrationData {
+        equilibrium: geo,
+        modes,
+    }
+}
+
+#[tauri::command]
+fn parse_fchk_file(path: String) -> Result<IdeMolecule, String> {
+    let source = fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path))?;
+    let fchk = parse_fchk(&source)?;
+    Ok(molecule_to_ide_fchk(&path, fchk))
 }
 
 #[tauri::command]
@@ -147,12 +367,183 @@ fn parse_molecule_xyz(source: String, name: Option<String>) -> Result<IdeMolecul
     Ok(molecule_to_ide(&path, mol))
 }
 
+fn companion_cube_path(fchk_path: &str) -> Option<PathBuf> {
+    let path = Path::new(fchk_path);
+    let parent = path.parent()?;
+    let stem = path.file_stem()?.to_str()?;
+    for name in [
+        format!("{stem}.cube"),
+        format!("{stem}_density.cube"),
+        format!("{stem}-density.cube"),
+    ] {
+        let candidate = parent.join(&name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+#[tauri::command]
+fn load_fchk_density_file(path: String) -> Result<IdeFieldSlice, String> {
+    if let Some(cube_path) = companion_cube_path(&path) {
+        let cube_str = cube_path.to_str().ok_or("invalid cube path")?;
+        return load_cube_file(cube_str.to_string());
+    }
+    let source = fs::read_to_string(&path).map_err(|e| format!("read {path}: {e}"))?;
+    let fchk = parse_fchk(&source)?;
+    let field = fchk_density_field(&fchk, 32);
+    let density_kind = if fchk.scf_density.is_some()
+        && fchk.shell_types.is_some()
+        && fchk.primitive_exponents.is_some()
+    {
+        "GTO"
+    } else {
+        "promolecule"
+    };
+    let name = format!("{} density ({density_kind})", fchk.title);
+    field_to_ide(&format!("{path}|density"), field, name)
+}
+
+#[derive(Serialize)]
+struct FchkMoInfo {
+    index: usize,
+    label: String,
+    energy_hartree: Option<f64>,
+    occupied: bool,
+}
+
+#[tauri::command]
+fn fchk_list_mos(path: String) -> Result<Vec<FchkMoInfo>, String> {
+    let (_, fchk) = load_fchk_source(&path)?;
+    let n_mos = fchk.n_mos().ok_or("fchk: no Alpha MO coefficients")?;
+    let homo = fchk.homo_index();
+    let energies = fchk.orbital_energies.as_deref();
+    let mut out = Vec::with_capacity(n_mos);
+    for i in 0..n_mos {
+        let gaussian_n = i + 1;
+        let label = match (homo, fchk.lumo_index()) {
+            (Some(h), Some(l)) if i == h => format!("HOMO ({gaussian_n})"),
+            (_, Some(l)) if i == l => format!("LUMO ({gaussian_n})"),
+            _ => format!("MO {gaussian_n}"),
+        };
+        let occupied = homo.map(|h| i <= h).unwrap_or(false);
+        let energy_hartree = energies.and_then(|e| e.get(i).copied());
+        out.push(FchkMoInfo {
+            index: i,
+            label,
+            energy_hartree,
+            occupied,
+        });
+    }
+    Ok(out)
+}
+
+#[tauri::command]
+fn load_fchk_mo_file(path: String, mo_index: usize) -> Result<IdeFieldSlice, String> {
+    let (_, fchk) = load_fchk_source(&path)?;
+    let field = fchk_mo_field(&fchk, mo_index, 32)?;
+    let gaussian_n = mo_index + 1;
+    let tag = match (fchk.homo_index(), fchk.lumo_index()) {
+        (Some(h), Some(l)) if mo_index == h => "HOMO".into(),
+        (_, Some(l)) if mo_index == l => "LUMO".into(),
+        _ => format!("MO {gaussian_n}"),
+    };
+    let energy = fchk
+        .orbital_energies
+        .as_ref()
+        .and_then(|e| e.get(mo_index))
+        .map(|e| format!(" E={e:.4} Ha"))
+        .unwrap_or_default();
+    let name = format!("{} {tag}{energy}", fchk.title);
+    field_to_ide(&format!("{path}|mo:{mo_index}"), field, name)
+}
+
+#[tauri::command]
+fn load_fchk_esp_file(path: String) -> Result<IdeFieldSlice, String> {
+    let (_, fchk) = load_fchk_source(&path)?;
+    let kind = if can_quantum_esp_fchk(&fchk) {
+        "quantum Hartree"
+    } else if fchk.mulliken_charges.is_some() {
+        "Mulliken monopole"
+    } else {
+        "nuclear"
+    };
+    let field = fchk_esp_field(&fchk, 32);
+    let name = format!("{} ESP ({kind})", fchk.title);
+    field_to_ide(&format!("{path}|esp"), field, name)
+}
+
+fn can_quantum_esp_fchk(fchk: &physlang_viz::FchkFile) -> bool {
+    use physlang_viz::basis_from_fchk;
+    if basis_from_fchk(fchk).is_none() {
+        return false;
+    }
+    let Some(scf) = fchk.scf_density.as_ref() else {
+        return false;
+    };
+    let Some(n_basis) = fchk.n_basis else {
+        return false;
+    };
+    n_basis > 0 && scf.len() >= n_basis * (n_basis + 1) / 2
+}
+
+#[tauri::command]
+fn export_fchk_density_cube(path: String) -> Result<String, String> {
+    let source = fs::read_to_string(&path).map_err(|e| format!("read {path}: {e}"))?;
+    let fchk = parse_fchk(&source)?;
+    let field = fchk_density_field(&fchk, 32);
+    let cube_text = scalar_field_to_cube(&field, &format!("{} density", fchk.title));
+    let out_path = Path::new(&path).with_extension("density.cube");
+    fs::write(&out_path, &cube_text).map_err(|e| format!("write {}: {e}", out_path.display()))?;
+    out_path
+        .to_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| "invalid output path".into())
+}
+
+#[tauri::command]
+fn chem_list_backends() -> Vec<ChemBackendInfo> {
+    list_chem_backends()
+}
+
+#[tauri::command]
+fn chem_submit_gaussian(path: String) -> Result<ChemJobResult, String> {
+    chem_jobs::submit_gaussian_job(&path)
+}
+
+#[tauri::command]
+fn chem_submit_orca(path: String) -> Result<ChemJobResult, String> {
+    chem_jobs::submit_orca_job(&path)
+}
+
+#[tauri::command]
+fn chem_enqueue_gaussian(path: String) -> Result<ChemJobEnqueueResult, String> {
+    enqueue_chem_job("gaussian", &path)
+}
+
+#[tauri::command]
+fn chem_enqueue_orca(path: String) -> Result<ChemJobEnqueueResult, String> {
+    enqueue_chem_job("orca", &path)
+}
+
 #[tauri::command]
 fn load_field_file(path: String) -> Result<IdeFieldSlice, String> {
+    if path.to_ascii_lowercase().ends_with(".cube") {
+        return load_cube_file(path);
+    }
     let source = fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path))?;
     let field: ScalarField =
         serde_json::from_str(&source).map_err(|e| format!("field json: {e}"))?;
-    field_to_ide(&path, field, path.rsplit('/').next().unwrap_or("field").to_string())
+    field_to_ide(
+        &path,
+        field,
+        Path::new(&path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("field")
+            .to_string(),
+    )
 }
 
 #[tauri::command]
@@ -168,8 +559,7 @@ fn field_slice_at(path: String, index: usize) -> Result<IdeFieldSlice, String> {
         let field = demo_gaussian_field(32);
         return field_to_ide_at_index(&path, field, "gaussian-32^3".into(), index);
     }
-    let source = fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path))?;
-    let field: ScalarField = serde_json::from_str(&source).map_err(|e| format!("field json: {e}"))?;
+    let field = load_scalar_field(&path)?;
     let name = Path::new(&path)
         .file_name()
         .and_then(|n| n.to_str())
@@ -179,15 +569,102 @@ fn field_slice_at(path: String, index: usize) -> Result<IdeFieldSlice, String> {
 }
 
 #[tauri::command]
-fn render_molecule_frame(path: String, camera: IdeCamera) -> Result<RenderFrameResult, String> {
+fn pick_molecule_atom_cmd(
+    path: String,
+    camera: IdeCamera,
+    style: Option<String>,
+    screen_x: f32,
+    screen_y: f32,
+) -> Result<Option<usize>, String> {
     let source = fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path))?;
-    let mol = parse_structure(&source, Some(&path))?;
+    let mol = load_molecule_geometry(&path, &source)?;
     let cam: OrbitCamera = camera.into();
-    let png = render_molecule_png(&mol, &cam)?;
+    let render_style = MolRenderStyle::from_str_loose(style.as_deref().unwrap_or("ball_and_stick"));
+    Ok(pick_molecule_atom(&mol, &cam, render_style, screen_x, screen_y))
+}
+
+#[tauri::command]
+fn render_molecule_frame(
+    path: String,
+    camera: IdeCamera,
+    style: Option<String>,
+) -> Result<RenderFrameResult, String> {
+    let source = fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path))?;
+    let mol = load_molecule_geometry(&path, &source)?;
+    let cam: OrbitCamera = camera.into();
+    let render_style = MolRenderStyle::from_str_loose(style.as_deref().unwrap_or("ball_and_stick"));
+    let png = render_molecule_png(&mol, &cam, render_style)?;
     Ok(RenderFrameResult {
         png,
-        backend: "wgpu-molecule".into(),
+        backend: format!("wgpu-molecule-{render_style:?}"),
     })
+}
+
+fn field_isovalue(field: &ScalarField, level: Option<f64>, sign: f64) -> f64 {
+    let t = level.unwrap_or(0.35).clamp(0.01, 0.99);
+    let max_abs = field
+        .values
+        .iter()
+        .map(|v| v.abs())
+        .fold(0.0_f64, f64::max);
+    let has_negative = field.values.iter().any(|&v| v < -1e-12);
+    if has_negative && max_abs > 1e-20 {
+        return sign.signum() * t * max_abs;
+    }
+    let (min, max) = field
+        .values
+        .iter()
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &v| {
+            (lo.min(v), hi.max(v))
+        });
+    let span = (max - min).max(1e-12);
+    min + t * span
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FieldSurfaceKind {
+    Density,
+    Mo(usize),
+    Esp,
+}
+
+fn split_field_path(path: &str) -> (&str, FieldSurfaceKind) {
+    if let Some((base, idx)) = path.rsplit_once("|mo:") {
+        if let Ok(i) = idx.parse::<usize>() {
+            return (base, FieldSurfaceKind::Mo(i));
+        }
+    }
+    if path.ends_with("|esp") {
+        return (&path[..path.len() - 4], FieldSurfaceKind::Esp);
+    }
+    if path.ends_with("|density") {
+        return (&path[..path.len() - 9], FieldSurfaceKind::Density);
+    }
+    (path, FieldSurfaceKind::Density)
+}
+
+fn load_scalar_field(path: &str) -> Result<ScalarField, String> {
+    if path == "demo://gaussian" {
+        return Ok(demo_gaussian_field(32));
+    }
+    let (file_path, kind) = split_field_path(path);
+    let lower = file_path.to_ascii_lowercase();
+    if lower.ends_with(".cube") {
+        let source = fs::read_to_string(file_path).map_err(|e| format!("read {file_path}: {e}"))?;
+        let cube = parse_cube(&source)?;
+        return Ok(cube_to_scalar_field(&cube));
+    }
+    if lower.ends_with(".fchk") {
+        let source = fs::read_to_string(file_path).map_err(|e| format!("read {file_path}: {e}"))?;
+        let fchk = parse_fchk(&source)?;
+        return match kind {
+            FieldSurfaceKind::Mo(mo_index) => fchk_mo_field(&fchk, mo_index, 32),
+            FieldSurfaceKind::Esp => Ok(fchk_esp_field(&fchk, 32)),
+            FieldSurfaceKind::Density => Ok(fchk_density_field(&fchk, 32)),
+        };
+    }
+    let source = fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
+    serde_json::from_str(&source).map_err(|e| format!("field json: {e}"))
 }
 
 #[tauri::command]
@@ -196,31 +673,64 @@ fn render_field_frame(
     index: usize,
     camera: IdeCamera,
     mode: Option<String>,
+    iso_level: Option<f64>,
+    iso_sign: Option<f64>,
+    iso_dual: Option<bool>,
 ) -> Result<RenderFrameResult, String> {
     let field = load_scalar_field(&path)?;
     let cam: OrbitCamera = camera.into();
     let use_iso = mode.as_deref() == Some("isosurface");
+    let sign = iso_sign.unwrap_or(1.0);
+    let (_, kind) = split_field_path(&path);
+    let is_mo = matches!(kind, FieldSurfaceKind::Mo(_));
+    let dual = iso_dual.unwrap_or(is_mo);
     let png = if use_iso {
-        render_field_isosurface_png(&field, 0.35, &cam)?
+        if dual {
+            let level = iso_level.unwrap_or(0.35);
+            render_field_mo_isosurface_png(&field, level, &cam)?
+        } else {
+            let iso = field_isovalue(&field, iso_level, sign);
+            render_field_isosurface_png(&field, iso, &cam)?
+        }
     } else {
         render_field_slice_3d_png(&field, index, &cam)?
     };
     Ok(RenderFrameResult {
         png,
         backend: if use_iso {
-            "wgpu-isosurface".into()
+            if dual {
+                "wgpu-mo-dual-isosurface".into()
+            } else {
+                "wgpu-isosurface".into()
+            }
         } else {
             "wgpu-field-slice-3d".into()
         },
     })
 }
 
-fn load_scalar_field(path: &str) -> Result<ScalarField, String> {
-    if path == "demo://gaussian" {
-        return Ok(demo_gaussian_field(32));
+fn load_fchk_source(path: &str) -> Result<(String, physlang_viz::FchkFile), String> {
+    let (file_path, _) = split_field_path(path);
+    let source = fs::read_to_string(file_path).map_err(|e| format!("read {file_path}: {e}"))?;
+    let fchk = parse_fchk(&source)?;
+    Ok((file_path.to_string(), fchk))
+}
+
+fn load_molecule_geometry(path: &str, source: &str) -> Result<physlang_viz::MoleculeGeometry, String> {
+    let lower = path.to_ascii_lowercase();
+    if lower.ends_with(".log") {
+        let log = parse_gaussian_log(source)?;
+        return log
+            .geometry
+            .ok_or_else(|| "log: no standard orientation geometry".to_string());
     }
-    let source = fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
-    serde_json::from_str(&source).map_err(|e| format!("field json: {e}"))
+    if lower.ends_with(".gjf") || lower.ends_with(".com") {
+        return Ok(parse_gjf(source)?.geometry);
+    }
+    if lower.ends_with(".fchk") {
+        return Ok(parse_fchk(source)?.geometry);
+    }
+    parse_structure(source, Some(path))
 }
 
 fn field_to_ide(path: &str, field: ScalarField, name: String) -> Result<IdeFieldSlice, String> {
@@ -253,7 +763,7 @@ fn field_to_ide_at_index(
 
 fn molecule_to_ide(path: &str, mol: physlang_viz::MoleculeGeometry) -> IdeMolecule {
     IdeMolecule {
-        name: mol.name,
+        name: mol.name.clone(),
         path: path.to_string(),
         atoms: mol
             .atoms
@@ -268,7 +778,85 @@ fn molecule_to_ide(path: &str, mol: physlang_viz::MoleculeGeometry) -> IdeMolecu
             })
             .collect(),
         bonds: mol.bonds,
+        chem: None,
     }
+}
+
+fn molecule_to_ide_chem(path: &str, job: physlang_viz::GaussianInput) -> IdeMolecule {
+    let mut ide = molecule_to_ide(path, job.geometry);
+    ide.name = job.title.clone();
+    let fmt = if path.to_ascii_lowercase().ends_with(".com") {
+        "com"
+    } else {
+        "gjf"
+    };
+    ide.chem = Some(IdeChemMeta {
+        format: fmt.into(),
+        title: job.title,
+        route: Some(job.route),
+        charge: Some(job.charge),
+        multiplicity: Some(job.multiplicity),
+        coordinate_type: Some(match job.coordinate_type {
+            physlang_viz::CoordinateType::Cartesian => "cartesian".into(),
+            physlang_viz::CoordinateType::ZMatrix => "z_matrix".into(),
+        }),
+        final_energy_hartree: None,
+        scf_cycles: None,
+        n_frequencies: None,
+        has_density: None,
+        has_mos: None,
+    });
+    ide
+}
+
+fn molecule_to_ide_log(path: &str, log: physlang_viz::GaussianLogResult) -> IdeMolecule {
+    let geometry = log.geometry.clone().unwrap_or(physlang_viz::MoleculeGeometry {
+        name: log.title.clone(),
+        atoms: vec![],
+        bonds: vec![],
+    });
+    let mut ide = molecule_to_ide(path, geometry);
+    ide.name = log.title.clone();
+    ide.chem = Some(IdeChemMeta {
+        format: "log".into(),
+        title: log.title,
+        route: None,
+        charge: None,
+        multiplicity: None,
+        coordinate_type: None,
+        final_energy_hartree: log.final_energy_hartree,
+        scf_cycles: Some(log.scf_energies_hartree.len()),
+        n_frequencies: Some(log.n_frequencies),
+        has_density: None,
+        has_mos: None,
+    });
+    ide
+}
+
+fn molecule_to_ide_fchk(path: &str, fchk: physlang_viz::FchkFile) -> IdeMolecule {
+    let mut ide = molecule_to_ide(path, fchk.geometry);
+    ide.name = fchk.title.clone();
+    ide.chem = Some(IdeChemMeta {
+        format: "fchk".into(),
+        title: fchk.title,
+        route: None,
+        charge: None,
+        multiplicity: None,
+        coordinate_type: None,
+        final_energy_hartree: None,
+        scf_cycles: None,
+        n_frequencies: Some(fchk.vibrational_frequencies_cm1.len()),
+        has_density: Some(fchk.has_density),
+        has_mos: Some(fchk.has_mos),
+    });
+    ide
+}
+
+#[tauri::command]
+fn parse_gjf_file(path: String) -> Result<IdeMolecule, String> {
+    let source = fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path))?;
+    let job = parse_gjf(&source)?;
+    Ok(molecule_to_ide_chem(&path, job))
 }
 
 fn collect_project_files(dir: &Path, out: &mut Vec<ProjectFile>) -> std::io::Result<()> {
@@ -296,6 +884,10 @@ fn collect_project_files(dir: &Path, out: &mut Vec<ProjectFile>) -> std::io::Res
                     Some("phys") => "phys",
                     Some("xyz") => "xyz",
                     Some("pdb") => "pdb",
+                    Some("gjf") | Some("com") => "gjf",
+                    Some("log") => "log",
+                    Some("fchk") => "fchk",
+                    Some("cube") => "cube",
                     _ => continue,
                 }
             };
@@ -347,14 +939,138 @@ fn check_phys_source(source: String) -> Vec<IdeDiagnostic> {
 }
 
 #[tauri::command]
-fn complete_phys_prefix(prefix: String) -> Vec<IdeCompletion> {
-    completions_for_prefix(&prefix)
+fn complete_phys_prefix(
+    source: String,
+    prefix: String,
+    project_root: Option<String>,
+) -> Vec<IdeCompletion> {
+    let mut items: Vec<IdeCompletion> = completions_for_prefix(&source, &prefix)
         .into_iter()
         .map(|c| IdeCompletion {
-            label: c.label,
+            label: c.label.clone(),
             detail: c.detail,
             insert_text: c.insert_text,
             kind: completion_kind_name(c.kind).to_string(),
+        })
+        .collect();
+    if let Some(root) = project_root {
+        if let Some(stdlib_dir) = find_stdlib_dir(Path::new(&root)) {
+            let index = index_stdlib_dir(&stdlib_dir);
+            let p = prefix.trim().to_lowercase();
+            for (name, sym) in index {
+                if !p.is_empty() && !name.to_lowercase().starts_with(&p) {
+                    continue;
+                }
+                if items.iter().any(|i| i.label == name) {
+                    continue;
+                }
+                let detail = match sym.file.file_name().and_then(|n| n.to_str()) {
+                    Some(f) => format!("stdlib: {f}"),
+                    None => "stdlib".into(),
+                };
+                items.push(IdeCompletion {
+                    label: name.clone(),
+                    detail: Some(detail),
+                    insert_text: name,
+                    kind: "function".into(),
+                });
+            }
+        }
+    }
+    items
+}
+
+#[tauri::command]
+fn find_phys_references(source: String, line: u32, column: u32) -> Vec<IdeLocation> {
+    find_references_at(&source, line, column)
+        .into_iter()
+        .map(|l| IdeLocation {
+            line: l.line,
+            column: l.column,
+            end_column: l.end_column,
+            file: None,
+        })
+        .collect()
+}
+
+#[tauri::command]
+fn rename_phys_symbol(source: String, line: u32, column: u32, new_name: String) -> Vec<IdeTextEdit> {
+    rename_at(&source, line, column, &new_name)
+        .into_iter()
+        .map(|e| IdeTextEdit {
+            line: e.line,
+            column: e.column,
+            end_column: e.end_column,
+            new_text: e.new_text,
+        })
+        .collect()
+}
+
+#[tauri::command]
+fn chem_job_status() -> ChemJobProgress {
+    chem_job_progress()
+}
+
+#[tauri::command]
+fn chem_job_last_result() -> Option<ChemJobResult> {
+    last_chem_job_result()
+}
+
+#[tauri::command]
+fn chem_job_cancel_cmd() -> Result<String, String> {
+    chem_job_cancel()
+}
+
+#[tauri::command]
+async fn chem_submit_gaussian_async(path: String) -> Result<ChemJobEnqueueResult, String> {
+    tauri::async_runtime::spawn_blocking(move || enqueue_chem_job("gaussian", &path))
+        .await
+        .map_err(|e| format!("job thread: {e}"))?
+}
+
+#[tauri::command]
+async fn chem_submit_orca_async(path: String) -> Result<ChemJobEnqueueResult, String> {
+    tauri::async_runtime::spawn_blocking(move || enqueue_chem_job("orca", &path))
+        .await
+        .map_err(|e| format!("job thread: {e}"))?
+}
+
+#[tauri::command]
+fn goto_phys_definition(
+    source: String,
+    line: u32,
+    column: u32,
+    project_root: Option<String>,
+) -> Option<IdeLocation> {
+    let stdlib_index = project_root
+        .as_ref()
+        .and_then(|root| find_stdlib_dir(Path::new(root)))
+        .map(|dir| index_stdlib_dir(&dir))
+        .unwrap_or_default();
+    definition_at_with_stdlib(&source, line, column, &stdlib_index).map(|loc| IdeLocation {
+        line: loc.line,
+        column: loc.column,
+        end_column: loc.end_column,
+        file: loc.file,
+    })
+}
+
+#[tauri::command]
+fn phys_code_actions(source: String, line: u32, column: u32) -> Vec<IdeCodeAction> {
+    code_actions_at(&source, line, column)
+        .into_iter()
+        .map(|a| IdeCodeAction {
+            title: a.title,
+            edits: a
+                .edits
+                .into_iter()
+                .map(|e| IdeTextEdit {
+                    line: e.line,
+                    column: e.column,
+                    end_column: e.end_column,
+                    new_text: e.new_text,
+                })
+                .collect(),
         })
         .collect()
 }
@@ -556,14 +1272,38 @@ pub fn run() {
             write_text_file,
             list_phys_files,
             parse_molecule_file,
+            parse_gaussian_log_file,
+            load_cube_file,
+            load_fchk_density_file,
+            load_fchk_mo_file,
+            load_fchk_esp_file,
+            fchk_list_mos,
+            parse_fchk_file,
+            list_vibration_modes,
+            vibration_frame,
+            parse_gjf_file,
             parse_molecule_xyz,
             load_field_file,
             demo_scalar_field,
             field_slice_at,
             render_molecule_frame,
+            pick_molecule_atom_cmd,
             render_field_frame,
+            export_fchk_density_cube,
+            chem_list_backends,
+            chem_submit_gaussian,
+            chem_submit_orca,
+            chem_submit_gaussian_async,
+            chem_submit_orca_async,
+            chem_job_status,
+            chem_job_last_result,
+            chem_job_cancel_cmd,
+            goto_phys_definition,
+            phys_code_actions,
             check_phys_source,
             complete_phys_prefix,
+            find_phys_references,
+            rename_phys_symbol,
             hover_phys_source,
             run_phys_source,
             run_phys_file,

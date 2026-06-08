@@ -22,12 +22,23 @@ export function pngBytesToDataUrl(png: number[]): string {
   return `data:image/png;base64,${btoa(binary)}`;
 }
 
+export type MolRenderStyle =
+  | "ball_and_stick"
+  | "wireframe"
+  | "space_fill"
+  | "stick";
+
 export async function renderMoleculeFrame(
   path: string,
   camera: IdeCamera,
+  style: MolRenderStyle = "ball_and_stick",
 ): Promise<RenderFrameResult | null> {
   try {
-    return await invoke<RenderFrameResult>("render_molecule_frame", { path, camera });
+    return await invoke<RenderFrameResult>("render_molecule_frame", {
+      path,
+      camera,
+      style,
+    });
   } catch {
     return null;
   }
@@ -38,6 +49,9 @@ export async function renderFieldFrame(
   index: number,
   camera: IdeCamera,
   mode?: "slice" | "isosurface",
+  isoLevel?: number,
+  isoSign?: number,
+  isoDual?: boolean,
 ): Promise<RenderFrameResult | null> {
   try {
     return await invoke<RenderFrameResult>("render_field_frame", {
@@ -45,6 +59,9 @@ export async function renderFieldFrame(
       index,
       camera,
       mode: mode ?? "slice",
+      isoLevel,
+      isoSign,
+      isoDual,
     });
   } catch {
     return null;
