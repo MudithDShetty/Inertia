@@ -187,12 +187,18 @@ body,
   display: none;
 }
 
+.viewer-canvas-wrap {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
 .wgpu-frame {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
-  height: calc(100% - 0px);
+  height: 100%;
   object-fit: contain;
   background: #1a1a2e;
   cursor: grab;

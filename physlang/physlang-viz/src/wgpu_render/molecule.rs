@@ -4,7 +4,7 @@ use crate::camera::{bounds_center_radius, mat4_mul, OrbitCamera};
 use crate::viewer3d::{element_symbol, MoleculeGeometry};
 use crate::wgpu_render::device::{
     create_device, create_mesh_pipeline, draw_mesh, upload_camera_bind_group, upload_mesh,
-    GpuDevice, GpuVertex, OffscreenTarget,
+    GpuVertex, OffscreenTarget,
 };
 
 pub fn cpk_color(element: u8) -> [f32; 3] {

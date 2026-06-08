@@ -401,15 +401,19 @@ function buildShell() {
 
   const molView = el("div", "viewer-panel");
   molView.id = "mol-view";
+  const molWrap = el("div", "viewer-canvas-wrap");
   const molCanvas = document.createElement("canvas");
   molCanvas.id = "molecule-canvas";
-  molView.appendChild(molCanvas);
+  molWrap.appendChild(molCanvas);
+  molView.appendChild(molWrap);
 
   const fieldView = el("div", "viewer-panel hidden");
   fieldView.id = "field-view";
+  const fieldWrap = el("div", "viewer-canvas-wrap");
   const fieldCanvas = document.createElement("canvas");
   fieldCanvas.id = "field-canvas";
-  fieldView.appendChild(fieldCanvas);
+  fieldWrap.appendChild(fieldCanvas);
+  fieldView.appendChild(fieldWrap);
   const sliceBar = el("div", "slice-bar");
   const sliceLabel = el("span");
   sliceLabel.id = "slice-label";

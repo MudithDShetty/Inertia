@@ -216,17 +216,18 @@ Status key: `[ ]` not started · `[~]` in progress · `[x]` done
 - [~] Formatting (`phys fmt`)
 
 ### PhysicsViz — 3D engine
-- [~] wgpu + winit rendering backend
-- [~] 3D field renderer: scalar fields (heatmaps), vector fields (arrows)
-- [ ] Isosurface extraction (marching cubes)
-- [ ] Volume rendering stub
-- [ ] Camera controls: orbit, pan, zoom
+- [x] wgpu offscreen rendering backend (Tauri PNG frames; winit window deferred)
+- [x] 3D field renderer: scalar Z-slice plane in 3D + 2D heatmap fallback
+- [~] Isosurface extraction (marching cubes stub)
+- [~] Volume rendering stub
+- [x] Camera controls: orbit, zoom (pan deferred)
 - [ ] Time-series playback: animate simulation frames
 - [ ] Export: PNG, MP4, VTK
 
 ### PhysicsViz — molecular viewer
 - [~] Parse PDB, CIF, XYZ file formats
-- [~] Ball-and-stick, space-filling, ribbon render modes
+- [x] Ball-and-stick render (wgpu 3D + canvas fallback)
+- [~] Space-filling, ribbon render modes
 - [ ] Atom picking, bond highlighting
 - [ ] Supercell / unit cell visualization
 
@@ -256,7 +257,7 @@ Status key: `[ ]` not started · `[~]` in progress · `[x]` done
 ### Phase 3 exit criteria
 - [x] IDE opens project, shows inline unit errors
 - [x] Molecule viewer loads PDB and renders
-- [~] 3D scalar field renders from simulation output
+- [x] 3D scalar field renders from simulation output (wgpu 3D slice + isosurface stub)
 
 ---
 
@@ -490,9 +491,9 @@ Status key: `[ ]` not started · `[~]` in progress · `[x]` done
 
 **Active phase:** Phase 3 — IDE shell + PhysicsViz + PhysicsAtom  
 **Next actionable items:**
-1. PhysicsViz: PDB parser + wgpu 3D backend (replace canvas stub)
-2. LSP: rename, find references, user-symbol completion
-3. PhysicsAtom: expand periodic table; Open Babel FFI stub
+1. LSP: rename, find references, user-symbol completion
+2. PhysicsAtom: expand periodic table; Open Babel FFI stub
+3. PhysicsViz: volume rendering, VTK I/O, time-series playback
 
 ---
 
