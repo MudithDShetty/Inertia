@@ -3,6 +3,8 @@ import {
   debounce,
   pngBytesToDataUrl,
   renderMoleculeFrame,
+  saveCanvasPng,
+  savePngBytes,
   type IdeCamera,
   type MolRenderStyle,
 } from "./wgpu-viewer";
@@ -166,6 +168,7 @@ export class MoleculeViewer {
   private pointerDownX = 0;
   private pointerDownY = 0;
   private onMeasureChange: (() => void) | null = null;
+  private lastPng: number[] | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -192,6 +195,10 @@ export class MoleculeViewer {
 
   getRenderStyle() {
     return this.renderStyle;
+  }
+
+  getCameraParams(): IdeCamera {
+    return this.cameraParams();
   }
 
   resetView() {
@@ -514,8 +521,18 @@ export class MoleculeViewer {
   clear() {
     this.mol = null;
     this.wgpuActive = false;
+    this.lastPng = null;
     this.hideWgpu();
     this.drawCanvas();
+  }
+
+  /** Export current view as PNG (wgpu frame or canvas fallback). */
+  async exportPng(defaultStem: string): Promise<string | null> {
+    const defaultPath = `${defaultStem}.png`;
+    if (this.lastPng?.length) {
+      return savePngBytes(this.lastPng, defaultPath);
+    }
+    return saveCanvasPng(this.canvas, defaultPath);
   }
 
   private async requestWgpuFrame() {
@@ -528,6 +545,7 @@ export class MoleculeViewer {
     );
     this.renderPending = false;
     if (this.measureMode !== "off" || !result?.png?.length) return;
+    this.lastPng = result.png;
     this.img.src = pngBytesToDataUrl(result.png);
     this.showWgpu();
   }

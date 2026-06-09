@@ -1,9 +1,11 @@
-// PhysicsLang math standard library — interfaces for PhysicsMath engine
+// Inertia math standard library — interfaces for PhysicsMath engine
 
+// Dot product stub (scalar multiply placeholder)
 fn dot(a: Float, b: Float) -> Float {
     return a * b
 }
 
+// Squared L2 norm stub
 fn norm2(v: Float) -> Float {
     return v * v
 }

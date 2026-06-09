@@ -4,12 +4,16 @@ import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { FieldViewer, type FieldSliceData } from "./field-viewer";
+import { PlotViewer, type PlotData, type PlotMode } from "./plot-viewer";
 import {
   applyDiagnostics,
   fetchDiagnostics,
   registerLspProviders,
 } from "./lsp";
 import { MoleculeViewer, type MoleculeData, type MeasureMode } from "./molecule-viewer";
+import { NotebookPanel, type NotebookDocument } from "./notebook";
+import { openStructureTable } from "./structure-editor";
+import { openZMatrixEditor } from "./zmatrix-editor";
 import {
   PHYSLANG_LANGUAGE_ID,
   registerPhyslangLanguage,
@@ -43,11 +47,17 @@ interface FchkMoInfo {
   occupied: boolean;
 }
 
-type ViewerTab = "molecule" | "field";
+type ViewerTab = "molecule" | "field" | "plot";
+type SidebarTab = "explorer" | "packages";
 
 let editor: monaco.editor.IStandaloneCodeEditor;
 let moleculeViewer: MoleculeViewer | null = null;
 let fieldViewer: FieldViewer | null = null;
+let plotViewer: PlotViewer | null = null;
+let notebook: NotebookPanel | null = null;
+let notebookMode = false;
+let lastMoleculeData: MoleculeData | null = null;
+let plotStreamStep = 0;
 let currentPath: string | null = null;
 let currentMoleculePath: string | null = null;
 let currentFieldPath: string | null = null;
@@ -58,6 +68,8 @@ let scheduleDiagnostics: (() => void) | null = null;
 let vibPath: string | null = null;
 let vibAnimHandle: ReturnType<typeof setInterval> | null = null;
 let vibPhase = 0;
+let fieldPlaybackHandle: ReturnType<typeof setInterval> | null = null;
+let notebookPath: string | null = null;
 
 interface VibrationModeInfo {
   index: number;
@@ -133,15 +145,27 @@ function setViewerVisible(visible: boolean) {
   pane.classList.toggle("hidden", !visible);
   moleculeViewer?.resize();
   fieldViewer?.resize();
+  plotViewer?.resize();
 }
 
 function switchViewerTab(tab: ViewerTab) {
   document.getElementById("mol-view")?.classList.toggle("hidden", tab !== "molecule");
   document.getElementById("field-view")?.classList.toggle("hidden", tab !== "field");
+  document.getElementById("plot-view")?.classList.toggle("hidden", tab !== "plot");
   document.getElementById("tab-molecule")?.classList.toggle("active", tab === "molecule");
   document.getElementById("tab-field")?.classList.toggle("active", tab === "field");
+  document.getElementById("tab-plot")?.classList.toggle("active", tab === "plot");
   moleculeViewer?.resize();
   fieldViewer?.resize();
+  plotViewer?.resize();
+}
+
+function switchSidebarTab(tab: SidebarTab) {
+  document.getElementById("file-tree")?.classList.toggle("hidden", tab !== "explorer");
+  document.getElementById("packages-panel")?.classList.toggle("hidden", tab !== "packages");
+  document.getElementById("tab-explorer")?.classList.toggle("active", tab === "explorer");
+  document.getElementById("tab-packages")?.classList.toggle("active", tab === "packages");
+  if (tab === "packages") void refreshPackagesPanel();
 }
 
 async function loadMolecule(path: string, editInEditor = false) {
@@ -160,6 +184,7 @@ async function loadMolecule(path: string, editInEditor = false) {
     const mol = await invoke<MoleculeData>("parse_molecule_file", { path });
     currentMoleculePath = path;
     currentFieldPath = null;
+    lastMoleculeData = mol;
     setMeasureMode("off");
     moleculeViewer?.load(mol);
     updateChemBar(mol);
@@ -285,6 +310,434 @@ async function exportFchkCube(path: string) {
     const out = await invoke<string>("export_fchk_density_cube", { path });
     setOutput(`Exported density cube: ${out}`, "success");
     await loadField(out, true);
+  } catch (err) {
+    setOutput(String(err), "error");
+  }
+}
+
+function pathStem(p: string | null, fallback: string): string {
+  if (!p) return fallback;
+  const base = p.split(/[/\\]/).pop() ?? fallback;
+  return base.replace(/\.[^.]+$/, "") || fallback;
+}
+
+async function exportViewerPng(kind: "molecule" | "field") {
+  const viewer = kind === "molecule" ? moleculeViewer : fieldViewer;
+  if (!viewer) return;
+  const stem = pathStem(
+    kind === "molecule" ? currentMoleculePath : currentFieldPath,
+    kind === "molecule" ? "molecule" : "field",
+  );
+  try {
+    const out = await viewer.exportPng(stem);
+    if (out) setOutput(`Saved PNG: ${out}`, "success");
+  } catch (err) {
+    setOutput(String(err), "error");
+  }
+}
+
+async function exportFieldVtk() {
+  if (!currentFieldPath) {
+    setOutput("Load a field first (Demo Field or Surfaces)", "error");
+    return;
+  }
+  try {
+    const out = await invoke<string>("export_field_vtk", { path: currentFieldPath });
+    setOutput(`Exported VTK: ${out}`, "success");
+  } catch (err) {
+    setOutput(String(err), "error");
+  }
+}
+
+async function loadDemoPlot() {
+  try {
+    const raw = await invoke<Record<string, unknown>>("demo_plot");
+    plotViewer?.load(normalizePlotData(raw));
+    plotViewer?.setMode("line");
+    setViewerVisible(true);
+    switchViewerTab("plot");
+    setActivePlotMode("line");
+    setOutput("Demo VQE convergence plot loaded", "success");
+  } catch (err) {
+    setOutput(String(err), "error");
+  }
+}
+
+function normalizePlotData(raw: Record<string, unknown>): PlotData {
+  return {
+    title: String(raw.title ?? "Plot"),
+    xLabel: String(raw.xLabel ?? raw.x_label ?? "x"),
+    yLabel: String(raw.yLabel ?? raw.y_label ?? "y"),
+    series: (raw.series as PlotData["series"]) ?? [],
+  };
+}
+
+function setActivePlotMode(mode: PlotMode) {
+  document.querySelectorAll("#plot-mode-bar .field-mode-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.getAttribute("data-mode") === mode);
+  });
+}
+
+async function loadDemoNotebook() {
+  if (!projectRoot) {
+    setOutput("Open Folder on the repo root first", "error");
+    return;
+  }
+  const sep = projectRoot.includes("\\") ? "\\" : "/";
+  const path = `${projectRoot}${sep}examples${sep}demo${sep}getting_started.inb`;
+  try {
+    const text = await invoke<string>("read_text_file", { path });
+    const doc = JSON.parse(text) as import("./notebook").NotebookDocument;
+    notebook?.loadDocument(doc);
+    notebookPath = path;
+    if (!notebookMode) toggleNotebook();
+    setOutput(`Tutorial notebook loaded: ${path}\nTry Run NB, then switch Plot modes.`, "success");
+  } catch (err) {
+    setOutput(String(err), "error");
+  }
+}
+
+async function formatCurrentFile() {
+  const source = notebookMode && notebook?.isVisible()
+    ? notebook.toDocument().phys
+    : editor.getValue();
+  try {
+    const formatted = await invoke<string>("format_phys_source", { source });
+    if (notebookMode && notebook?.isVisible()) {
+      const doc = notebook.toDocument();
+      doc.phys = formatted;
+      notebook.loadDocument(doc);
+    } else {
+      editor.setValue(formatted);
+    }
+    setOutput("Formatted (trim trailing whitespace per line)", "success");
+  } catch (err) {
+    setOutput(String(err), "error");
+  }
+}
+
+async function refreshPackagesPanel() {
+  const panel = document.getElementById("packages-panel");
+  if (!panel) return;
+  panel.innerHTML = "";
+  if (!projectRoot) {
+    panel.textContent = "Open Folder to browse the package catalog.";
+    return;
+  }
+  try {
+    const catalog = await invoke<
+      { id: string; name: string; description: string; builtin?: boolean }[]
+    >("list_package_catalog", { root: projectRoot });
+    const installed = new Set(
+      await invoke<string[]>("list_installed_packages", { root: projectRoot }),
+    );
+    const title = el("p", "pkg-hint");
+    title.textContent = "Package hub — install copies to .inertia/packages/";
+    panel.appendChild(title);
+    for (const pkg of catalog) {
+      const row = el("div", "pkg-row");
+      const label = el("span", "pkg-name");
+      label.textContent = pkg.name;
+      const desc = el("span", "pkg-desc");
+      desc.textContent = pkg.description;
+      const btn = el("button", "field-mode-btn");
+      const isInstalled = installed.has(pkg.id) || Boolean(pkg.builtin);
+      btn.textContent = isInstalled ? (pkg.builtin ? "Built-in" : "Installed") : "Install";
+      btn.disabled = isInstalled;
+      btn.addEventListener("click", () => {
+        void (async () => {
+          try {
+            const msg = await invoke<string>("install_package", {
+              root: projectRoot,
+              packageId: pkg.id,
+            });
+            setOutput(msg, "success");
+            await refreshPackagesPanel();
+          } catch (err) {
+            setOutput(String(err), "error");
+          }
+        })();
+      });
+      row.append(label, desc, btn);
+      panel.appendChild(row);
+    }
+  } catch (err) {
+    panel.textContent = String(err);
+  }
+}
+
+function showTextModal(title: string, initial: string, onSave: (text: string) => void) {
+  const overlay = el("div", "modal-overlay");
+  const box = el("div", "modal-box");
+  const h = el("h3");
+  h.textContent = title;
+  const ta = document.createElement("textarea");
+  ta.className = "modal-textarea";
+  ta.value = initial;
+  const row = el("div", "modal-actions");
+  const cancel = el("button", "field-mode-btn");
+  cancel.textContent = "Cancel";
+  const save = el("button", "field-mode-btn");
+  save.textContent = "Save";
+  cancel.addEventListener("click", () => overlay.remove());
+  save.addEventListener("click", () => {
+    onSave(ta.value);
+    overlay.remove();
+  });
+  row.append(cancel, save);
+  box.append(h, ta, row);
+  overlay.appendChild(box);
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) overlay.remove();
+  });
+  document.body.appendChild(overlay);
+  ta.focus();
+}
+
+async function openStructureEditor() {
+  if (lastMoleculeData?.atoms.length) {
+    openStructureTable(lastMoleculeData, (outPath) => {
+      void loadMolecule(outPath, false);
+    });
+    return;
+  }
+  if (!currentMoleculePath) {
+    setOutput("Open a molecule file first", "error");
+    return;
+  }
+  const lower = currentMoleculePath.toLowerCase();
+  if (!lower.endsWith(".gjf") && !lower.endsWith(".com")) {
+    setOutput("Structure editor: open a molecule with atoms (.xyz, .gjf, …)", "error");
+    return;
+  }
+  try {
+    const source = await invoke<string>("read_text_file", { path: currentMoleculePath });
+    showTextModal("Edit Gaussian input / geometry", source, (text) => {
+      void (async () => {
+        await invoke("write_text_file", { path: currentMoleculePath, content: text });
+        await loadMolecule(currentMoleculePath!, false);
+        setOutput("Geometry saved — molecule reloaded", "success");
+      })();
+    });
+  } catch (err) {
+    setOutput(String(err), "error");
+  }
+}
+
+function openZMatrixModal() {
+  if (!currentMoleculePath) {
+    setOutput("Open a .gjf / .com file first", "error");
+    return;
+  }
+  const lower = currentMoleculePath.toLowerCase();
+  if (!lower.endsWith(".gjf") && !lower.endsWith(".com")) {
+    setOutput("Z-matrix editor: Gaussian .gjf / .com only", "error");
+    return;
+  }
+  void openZMatrixEditor(
+    currentMoleculePath,
+    () => {
+      void loadMolecule(currentMoleculePath!, false);
+      setOutput("Coordinate block saved — molecule reloaded", "success");
+    },
+    showTextModal,
+  ).catch((err) => setOutput(String(err), "error"));
+}
+
+function openDebugEval() {
+  showTextModal("Debug eval (expression → Int)", "1 + 2", (expr) => {
+    void (async () => {
+      try {
+        const result = await invoke<RunResult>("debug_eval_phys", { expr });
+        const lines = [
+          "Debug eval (DAP stub)",
+          `backend: ${result.backend}`,
+          ...result.stdout,
+          result.result ? `=> ${result.result}` : "",
+          result.error ?? "",
+        ].filter(Boolean);
+        setOutput(lines.join("\n"), result.error ? "error" : "success");
+      } catch (err) {
+        setOutput(String(err), "error");
+      }
+    })();
+  });
+}
+
+function toggleNotebook() {
+  notebookMode = !notebookMode;
+  document.getElementById("editor-pane")?.classList.toggle("hidden", notebookMode);
+  notebook?.setVisible(notebookMode);
+  if (!notebookMode) editor?.layout();
+}
+
+async function runNotebook() {
+  if (!notebook) return;
+  setOutput("Running notebook cells…\n");
+  try {
+    const { phys, python } = await notebook.runAll();
+    const lines = [
+      "=== Inertia (.phys) ===",
+      `backend: ${phys.backend}`,
+      ...phys.stdout,
+      phys.result ? `=> ${phys.result}` : "",
+      phys.error ?? "",
+      "",
+      "=== Python ===",
+      `backend: ${python.backend}`,
+      ...python.stdout,
+      python.result ? `=> ${python.result}` : "",
+      python.error ?? "",
+    ].filter(Boolean);
+    setOutput(lines.join("\n"), phys.error || python.error ? "error" : "success");
+    streamRunToPlot(phys);
+  } catch (err) {
+    setOutput(String(err), "error");
+  }
+}
+
+async function saveNotebook() {
+  if (!notebook) return;
+  let path = notebookPath;
+  if (!path) {
+    const selected = await save({
+      filters: [{ name: "Inertia Notebook", extensions: ["inb"] }],
+      defaultPath: "notebook.inb",
+    });
+    if (!selected) return;
+    path = selected;
+    notebookPath = path;
+  }
+  const doc = notebook.toDocument();
+  doc.title = basename(path);
+  await invoke("write_text_file", {
+    path,
+    content: JSON.stringify(doc, null, 2),
+  });
+  notebook.setTitle(doc.title);
+  setOutput(`Notebook saved: ${path}`, "success");
+}
+
+async function openNotebookDialog() {
+  const selected = await open({
+    filters: [{ name: "Inertia Notebook", extensions: ["inb"] }],
+    multiple: false,
+  });
+  if (!selected || Array.isArray(selected)) return;
+  try {
+    const text = await invoke<string>("read_text_file", { path: selected });
+    const doc = JSON.parse(text) as NotebookDocument;
+    notebook?.loadDocument(doc);
+    notebookPath = selected;
+    if (!notebookMode) toggleNotebook();
+    setOutput(`Loaded notebook: ${selected}`, "success");
+  } catch (err) {
+    setOutput(String(err), "error");
+  }
+}
+
+function stopFieldPlayback() {
+  if (fieldPlaybackHandle) {
+    clearInterval(fieldPlaybackHandle);
+    fieldPlaybackHandle = null;
+  }
+  const btn = document.getElementById("field-play-btn");
+  btn?.classList.remove("active");
+  btn && ((btn as HTMLButtonElement).textContent = "Play");
+}
+
+function toggleFieldPlayback() {
+  const slider = document.getElementById("slice-slider") as HTMLInputElement | null;
+  const btn = document.getElementById("field-play-btn") as HTMLButtonElement | null;
+  if (!slider || !currentFieldPath || currentFieldDepth < 2) {
+    setOutput("Load a multi-slice field first", "error");
+    return;
+  }
+  if (fieldPlaybackHandle) {
+    stopFieldPlayback();
+    return;
+  }
+  btn?.classList.add("active");
+  if (btn) btn.textContent = "Stop";
+  let idx = Number(slider.value);
+  fieldPlaybackHandle = setInterval(() => {
+    idx = (idx + 1) % currentFieldDepth;
+    slider.value = String(idx);
+    void onSliceChange(idx);
+  }, 120);
+}
+
+async function exportFieldMp4() {
+  if (!currentFieldPath || !fieldViewer) {
+    setOutput("Open a field first", "error");
+    return;
+  }
+  const mode = fieldViewer.getViewMode();
+  if (mode === "slice2d" || mode === "volume") {
+    setOutput("Field MP4: use 3D or Iso view mode", "error");
+    return;
+  }
+  setOutput("Rendering field spin frames…");
+  try {
+    const out = await invoke<string>("export_field_mp4", {
+      path: currentFieldPath,
+      index: fieldViewer.getSliceIndex(),
+      camera: fieldViewer.getCameraParams(),
+      frames: 48,
+      mode: mode === "isosurface" ? "isosurface" : null,
+    });
+    setOutput(out, "success");
+  } catch (err) {
+    setOutput(String(err), "error");
+  }
+}
+
+async function runShellCommand(command: string) {
+  const trimmed = command.trim();
+  if (!trimmed) return;
+  appendOutput(`\n$ ${trimmed}\n`);
+  try {
+    const result = await invoke<RunResult>("run_shell_command", {
+      cwd: projectRoot,
+      command: trimmed,
+    });
+    const lines = [...result.stdout, result.result ?? "", result.error ?? ""]
+      .filter(Boolean)
+      .join("\n");
+    appendOutput(lines + "\n");
+  } catch (err) {
+    appendOutput(String(err) + "\n");
+  }
+}
+
+function streamRunToPlot(result: RunResult) {
+  const blob = [...result.stdout, result.result ?? ""].join(" ");
+  const nums = [...blob.matchAll(/-?\d+\.\d+(?:[eE][+-]?\d+)?/g)].map((m) =>
+    parseFloat(m[0]),
+  );
+  if (!nums.length) return;
+  const val = nums[nums.length - 1]!;
+  if (!Number.isFinite(val)) return;
+  plotStreamStep += 1;
+  plotViewer?.appendSample("run", plotStreamStep, val);
+  setViewerVisible(true);
+  switchViewerTab("plot");
+}
+
+async function exportMoleculeMp4() {
+  if (!currentMoleculePath || !moleculeViewer) {
+    setOutput("Open a molecule first", "error");
+    return;
+  }
+  setOutput("Rendering 360° spin frames…");
+  try {
+    const out = await invoke<string>("export_molecule_mp4", {
+      path: currentMoleculePath,
+      camera: moleculeViewer.getCameraParams(),
+      frames: 48,
+      style: moleculeViewer.getRenderStyle(),
+    });
+    setOutput(out, "success");
   } catch (err) {
     setOutput(String(err), "error");
   }
@@ -519,6 +972,7 @@ function toggleVibrationPlay() {
 }
 
 async function applyFieldSlice(slice: FieldSliceData, preferIso = false) {
+  stopFieldPlayback();
   currentFieldPath = slice.path;
   currentFieldDepth = slice.depth;
   currentMoleculePath = null;
@@ -674,7 +1128,7 @@ function highlightTreeSelection(path: string) {
 async function openFileDialog() {
   const selected = await open({
     multiple: false,
-    filters: [{ name: "PhysicsLang", extensions: ["phys"] }],
+      filters: [{ name: "Inertia", extensions: ["phys"] }],
   });
   if (typeof selected === "string") await loadFile(selected);
 }
@@ -711,10 +1165,34 @@ async function openLanguageDocs() {
       monaco.editor.setModelLanguage(model, "markdown");
     }
     updateFileLabel();
-    setOutput("PhysicsLang language reference — see also docs/quickstart.md", "success");
+    setOutput("Inertia language reference — see also docs/quickstart.md", "success");
     scheduleDiagnostics?.();
   } catch (err) {
     setOutput(`Could not load ${docPath}: ${err}`, "error");
+  }
+}
+
+async function openStdlibDocs() {
+  if (!projectRoot) {
+    setOutput("Open the Inertia repo folder first (Open Folder), then click Stdlib again.", "error");
+    return;
+  }
+  try {
+    const source = await invoke<string>("stdlib_reference_markdown", { root: projectRoot });
+    currentPath = null;
+    currentMoleculePath = null;
+    currentFieldPath = null;
+    dirty = false;
+    editor.setValue(source);
+    const model = editor.getModel();
+    if (model) {
+      monaco.editor.setModelLanguage(model, "markdown");
+    }
+    updateFileLabel();
+    setOutput("Standard library reference (generated from stdlib/*.phys comments)", "success");
+    scheduleDiagnostics?.();
+  } catch (err) {
+    setOutput(String(err), "error");
   }
 }
 
@@ -736,7 +1214,7 @@ async function openFolderDialog() {
 async function saveCurrentFile() {
   if (!currentPath) {
     const selected = await save({
-      filters: [{ name: "PhysicsLang", extensions: ["phys"] }],
+      filters: [{ name: "Inertia", extensions: ["phys"] }],
       defaultPath: "untitled.phys",
     });
     if (!selected) return;
@@ -793,6 +1271,7 @@ async function runCurrent() {
       result.error ? `${lines}\n\n${result.error}` : lines,
       result.error ? "error" : "success",
     );
+    if (!result.error) streamRunToPlot(result);
   } catch (err) {
     setOutput(String(err), "error");
   }
@@ -814,11 +1293,20 @@ function buildShell() {
     mkBtn("Open Folder", () => void openFolderDialog(), true),
     mkBtn("Open File", () => void openFileDialog(), true),
     mkBtn("Open Mol", () => void openMoleculeDialog(), true),
+    mkBtn("Notebook", () => toggleNotebook(), true),
+    mkBtn("Open NB", () => void openNotebookDialog(), true),
+    mkBtn("Demo NB", () => void loadDemoNotebook(), true),
+    mkBtn("Save NB", () => void saveNotebook(), true),
+    mkBtn("Run NB", () => void runNotebook(), true),
     mkBtn("Demo Field", () => void loadDemoField(), true),
+    mkBtn("Demo Plot", () => void loadDemoPlot(), true),
     mkBtn("Docs", () => void openLanguageDocs(), true),
+    mkBtn("Stdlib", () => void openStdlibDocs(), true),
+    mkBtn("Debug", () => openDebugEval(), true),
     mkBtn("Run G16", () => void runGaussianJob(), true),
     mkBtn("Run ORCA", () => void runOrcaJob(), true),
     mkBtn("Save", () => void saveCurrentFile(), true),
+    mkBtn("Format", () => void formatCurrentFile(), true),
     mkBtn("Check", () => void checkCurrent(), true),
     mkBtn("Run", () => void runCurrent()),
   );
@@ -834,14 +1322,26 @@ function buildShell() {
   const workspace = el("div", "workspace");
 
   const sidebar = el("aside", "sidebar");
-  const sidebarTitle = el("h2");
-  sidebarTitle.textContent = "Explorer";
+  const sidebarTabs = el("div", "sidebar-tabs");
+  const tabExplorer = el("button", "sidebar-tab active");
+  tabExplorer.id = "tab-explorer";
+  tabExplorer.textContent = "Explorer";
+  tabExplorer.addEventListener("click", () => switchSidebarTab("explorer"));
+  const tabPackages = el("button", "sidebar-tab");
+  tabPackages.id = "tab-packages";
+  tabPackages.textContent = "Packages";
+  tabPackages.addEventListener("click", () => switchSidebarTab("packages"));
+  sidebarTabs.append(tabExplorer, tabPackages);
   const fileTree = el("div", "file-tree");
   fileTree.id = "file-tree";
-  sidebar.append(sidebarTitle, fileTree);
+  const packagesPanel = el("div", "packages-panel hidden");
+  packagesPanel.id = "packages-panel";
+  packagesPanel.textContent = "Open Folder to list stdlib packages.";
+  sidebar.append(sidebarTabs, fileTree, packagesPanel);
 
   const center = el("div", "center-column");
   const editorPane = el("div", "editor-pane");
+  editorPane.id = "editor-pane";
   const editorDiv = el("div");
   editorDiv.id = "editor";
   editorPane.appendChild(editorDiv);
@@ -859,7 +1359,11 @@ function buildShell() {
   tabField.id = "tab-field";
   tabField.textContent = "Field";
   tabField.addEventListener("click", () => switchViewerTab("field"));
-  viewerTabs.append(tabMol, tabField);
+  const tabPlot = el("button", "viewer-tab");
+  tabPlot.id = "tab-plot";
+  tabPlot.textContent = "Plot";
+  tabPlot.addEventListener("click", () => switchViewerTab("plot"));
+  viewerTabs.append(tabMol, tabField, tabPlot);
 
   const molView = el("div", "viewer-panel");
   molView.id = "mol-view";
@@ -894,6 +1398,26 @@ function buildShell() {
   fitBtn.title = "Reset camera";
   fitBtn.addEventListener("click", () => moleculeViewer?.resetView());
   molStyleBar.appendChild(fitBtn);
+  const molPngBtn = el("button", "field-mode-btn");
+  molPngBtn.textContent = "PNG";
+  molPngBtn.title = "Save current molecule view as PNG";
+  molPngBtn.addEventListener("click", () => void exportViewerPng("molecule"));
+  molStyleBar.appendChild(molPngBtn);
+  const editGeomBtn = el("button", "field-mode-btn");
+  editGeomBtn.textContent = "Edit";
+  editGeomBtn.title = "Edit coordinates (table) or .gjf text";
+  editGeomBtn.addEventListener("click", () => void openStructureEditor());
+  molStyleBar.appendChild(editGeomBtn);
+  const zMatrixBtn = el("button", "field-mode-btn");
+  zMatrixBtn.textContent = "Z-mat";
+  zMatrixBtn.title = "Edit Z-matrix / Cartesian block in .gjf";
+  zMatrixBtn.addEventListener("click", () => openZMatrixModal());
+  molStyleBar.appendChild(zMatrixBtn);
+  const molMp4Btn = el("button", "field-mode-btn");
+  molMp4Btn.textContent = "MP4";
+  molMp4Btn.title = "360° spin animation (PNG frames; ffmpeg for MP4)";
+  molMp4Btn.addEventListener("click", () => void exportMoleculeMp4());
+  molStyleBar.appendChild(molMp4Btn);
   molView.appendChild(molStyleBar);
   const surfaceBar = el("div", "slice-bar hidden");
   surfaceBar.id = "surface-bar";
@@ -1052,6 +1576,7 @@ function buildShell() {
     mode2d.classList.add("active");
     mode3d.classList.remove("active");
     modeIso.classList.remove("active");
+    modeVol.classList.remove("active");
     document.getElementById("iso-row")?.classList.add("hidden");
   });
   const mode3d = el("button", "field-mode-btn active");
@@ -1062,6 +1587,7 @@ function buildShell() {
     mode3d.classList.add("active");
     mode2d.classList.remove("active");
     modeIso.classList.remove("active");
+    modeVol.classList.remove("active");
     document.getElementById("iso-row")?.classList.add("hidden");
   });
   const modeIso = el("button", "field-mode-btn");
@@ -1072,12 +1598,28 @@ function buildShell() {
     modeIso.classList.add("active");
     mode2d.classList.remove("active");
     mode3d.classList.remove("active");
+    modeVol.classList.remove("active");
     isoRow.classList.remove("hidden");
+  });
+  const modeVol = el("button", "field-mode-btn");
+  modeVol.textContent = "Vol";
+  modeVol.title = "Ray-march volume rendering (CPU stub)";
+  modeVol.addEventListener("click", () => {
+    fieldViewer?.setViewMode("volume");
+    modeVol.classList.add("active");
+    mode2d.classList.remove("active");
+    mode3d.classList.remove("active");
+    modeIso.classList.remove("active");
+    isoRow.classList.add("hidden");
   });
   const fieldFitBtn = el("button", "field-mode-btn");
   fieldFitBtn.textContent = "Fit";
   fieldFitBtn.title = "Reset camera";
   fieldFitBtn.addEventListener("click", () => fieldViewer?.resetView());
+  const fieldPngBtn = el("button", "field-mode-btn");
+  fieldPngBtn.textContent = "PNG";
+  fieldPngBtn.title = "Save current field view as PNG";
+  fieldPngBtn.addEventListener("click", () => void exportViewerPng("field"));
   const isoRow = el("div", "slice-bar");
   isoRow.id = "iso-row";
   isoRow.classList.add("hidden");
@@ -1115,11 +1657,52 @@ function buildShell() {
     isoLabel.textContent = `Iso −${slider?.value ?? "35"}%`;
   });
   isoRow.append(isoLabel, isoPlus, isoMinus, isoSlider);
-  sliceBar.append(sliceLabel, sliceSlider, mode2d, mode3d, modeIso, fieldFitBtn);
+  const fieldVtkBtn = el("button", "field-mode-btn");
+  fieldVtkBtn.textContent = "VTK";
+  fieldVtkBtn.title = "Export scalar field as VTK structured points";
+  fieldVtkBtn.addEventListener("click", () => void exportFieldVtk());
+  const fieldPlayBtn = el("button", "field-mode-btn");
+  fieldPlayBtn.id = "field-play-btn";
+  fieldPlayBtn.textContent = "Play";
+  fieldPlayBtn.title = "Animate slice through depth (time-series stub)";
+  fieldPlayBtn.addEventListener("click", () => toggleFieldPlayback());
+  const fieldMp4Btn = el("button", "field-mode-btn");
+  fieldMp4Btn.textContent = "MP4";
+  fieldMp4Btn.title = "360° spin on 3D/Iso field view";
+  fieldMp4Btn.addEventListener("click", () => void exportFieldMp4());
+  sliceBar.append(sliceLabel, sliceSlider, mode2d, mode3d, modeIso, modeVol, fieldFitBtn, fieldPngBtn, fieldVtkBtn, fieldPlayBtn, fieldMp4Btn);
   fieldView.appendChild(sliceBar);
   fieldView.appendChild(isoRow);
 
-  viewerPane.append(viewerTabs, molView, fieldView);
+  const plotView = el("div", "viewer-panel hidden");
+  plotView.id = "plot-view";
+  const plotWrap = el("div", "viewer-canvas-wrap");
+  const plotCanvas = document.createElement("canvas");
+  plotCanvas.id = "plot-canvas";
+  plotWrap.appendChild(plotCanvas);
+  plotView.appendChild(plotWrap);
+  const plotModeBar = el("div", "slice-bar");
+  plotModeBar.id = "plot-mode-bar";
+  const mkPlotMode = (label: string, mode: PlotMode, active = false) => {
+    const btn = el("button", "field-mode-btn");
+    if (active) btn.classList.add("active");
+    btn.textContent = label;
+    btn.setAttribute("data-mode", mode);
+    btn.addEventListener("click", () => {
+      plotViewer?.setMode(mode);
+      setActivePlotMode(mode);
+    });
+    return btn;
+  };
+  plotModeBar.append(
+    mkPlotMode("Line", "line", true),
+    mkPlotMode("Scatter", "scatter"),
+    mkPlotMode("Hist", "histogram"),
+    mkPlotMode("Contour", "contour"),
+  );
+  plotView.appendChild(plotModeBar);
+
+  viewerPane.append(viewerTabs, molView, fieldView, plotView);
   workspace.append(sidebar, center, viewerPane);
   app.appendChild(workspace);
 
@@ -1144,17 +1727,34 @@ function buildShell() {
   jobPanelBody.textContent = "No jobs";
   jobPanel.append(jobPanelTitle, jobPanelToolbar, jobPanelBody);
   outputPanel.append(outputTitle, output, jobPanel);
+  const terminalRow = el("div", "terminal-row");
+  const terminalPrompt = el("span", "terminal-prompt");
+  terminalPrompt.textContent = "$";
+  const terminalInput = document.createElement("input");
+  terminalInput.type = "text";
+  terminalInput.className = "terminal-input";
+  terminalInput.placeholder = "Shell command (project root cwd)…";
+  terminalInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      void runShellCommand(terminalInput.value);
+      terminalInput.value = "";
+    }
+  });
+  terminalRow.append(terminalPrompt, terminalInput);
+  outputPanel.appendChild(terminalRow);
   app.appendChild(outputPanel);
 
   moleculeViewer = new MoleculeViewer(molCanvas);
   moleculeViewer.setMeasureCallback(refreshMeasureLabel);
   fieldViewer = new FieldViewer(fieldCanvas);
+  plotViewer = new PlotViewer(plotCanvas);
+  notebook = new NotebookPanel(center);
 }
 
 function initEditor() {
   editor = monaco.editor.create(document.getElementById("editor")!, {
     value: [
-      "// PhysicsLang IDE",
+      "// Inertia IDE — language: Inertia (.phys)",
       "// Molecules: examples/molecules/water.gjf | water.pdb | water.xyz",
       "// Fields: Demo Field toolbar or .field.json in explorer",
       "",
@@ -1190,4 +1790,4 @@ function initEditor() {
 buildShell();
 initEditor();
 refreshProjectTree();
-setOutput("Ready — GaussView-style: .gjf/.com, .pdb, .xyz | Demo Field for volumes.");
+setOutput("Ready — Inertia IDE | GaussView-style chemistry | Demo Field / Plot");

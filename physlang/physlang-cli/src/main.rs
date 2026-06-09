@@ -10,7 +10,7 @@ use std::fs;
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "phys", about = "PhysicsLang compiler and runtime", version)]
+#[command(name = "phys", about = "Inertia compiler and runtime", version)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -148,7 +148,7 @@ fn cmd_check(file: &PathBuf) -> Result<()> {
 }
 
 fn cmd_repl() -> Result<()> {
-    println!("PhysicsLang REPL v0.1 (stub). Type :quit to exit.");
+    println!("Inertia REPL v0.1 (stub). Type :quit to exit.");
     let stdin = std::io::stdin();
     loop {
         print!("phys> ");

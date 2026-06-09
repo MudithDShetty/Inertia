@@ -12,4 +12,8 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
+[[bin]]
+name = "gen-stdlib-docs"
+path = "src/bin/gen_stdlib_docs.rs"
+
 [dev-dependencies]

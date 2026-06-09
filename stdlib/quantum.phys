@@ -1,31 +1,33 @@
-// PhysicsLang quantum standard library
-// Gates, circuits, Hamiltonians, VQA helpers
+// Inertia quantum standard library — gates, circuits, Hamiltonians, VQA helpers
 
-// Built-in gate constructors (also available as syntax: H(0), CNOT(0,1))
-// Types: Qubit, QReg, Gate, Circuit, Hamiltonian, Observable
-
+// Bell-state preparation circuit (H on q0, CNOT q0→q1)
 fn bell() -> Circuit {
     H(0)
     CNOT(0, 1)
     return ansatz(q, 0.0)
 }
 
+// Hardware-efficient layered ansatz for n qubits
 fn hardware_efficient_ansatz(n: Int, layers: Int, params: Angle) -> Circuit {
     return ansatz(q, params)
 }
 
+// Pauli-Z observable on one qubit
 fn pauli_z(qubit: Int) -> Observable {
     return Z(qubit)
 }
 
+// Heisenberg XXX chain Hamiltonian on two qubits
 fn heisenberg_hamiltonian(j: Float) -> Hamiltonian {
     return -j * (X(0) @ X(1) + Y(0) @ Y(1) + Z(0) @ Z(1))
 }
 
+// H₂ stoquastic Hamiltonian (reference for VQE examples)
 fn h2_hamiltonian() -> Hamiltonian {
     return -0.39 * X(0) @ X(1) + 0.18 * Z(0) + 0.18 * Z(1) - 0.01 * Z(0) @ Z(1)
 }
 
+// VQE energy expectation ⟨H⟩ for hardware-efficient ansatz
 @differentiable
 fn vqe_energy(theta: Angle[4]) -> Energy {
     let circuit = hardware_efficient_ansatz(2, 1, theta)
@@ -33,12 +35,14 @@ fn vqe_energy(theta: Angle[4]) -> Energy {
     return expect(circuit, H)
 }
 
+// Grover oracle phase flip (example stub)
 fn grover_oracle() -> Circuit {
     X(0)
     X(1)
     return ansatz(q, 0.0)
 }
 
+// Sample measurement outcomes from a circuit
 fn run_shots(circ: Circuit, shots: Int) -> Result {
     return sample(circ, shots)
 }

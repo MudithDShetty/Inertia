@@ -172,7 +172,7 @@ pub fn scalar_field_to_cube(field: &ScalarField, title: &str) -> String {
     let vx = if nx > 1 { (x1 - x0) / (nx - 1) as f64 } else { 1.0 };
     let vy = if ny > 1 { (y1 - y0) / (ny - 1) as f64 } else { 1.0 };
     let vz = if nz > 1 { (z1 - z0) / (nz - 1) as f64 } else { 1.0 };
-    let mut out = format!("{title}\nExported from PhysicsLang\n0 {x0:.6} {y0:.6} {z0:.6}\n");
+    let mut out = format!("{title}\nExported from Inertia\n0 {x0:.6} {y0:.6} {z0:.6}\n");
     out.push_str(&format!("{nx} {vx:.6} 0.0 0.0\n"));
     out.push_str(&format!("{ny} 0.0 {vy:.6} 0.0\n"));
     out.push_str(&format!("{nz} 0.0 0.0 {vz:.6}\n"));

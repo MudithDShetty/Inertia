@@ -1,4 +1,4 @@
-# Agent handoff — PhysicsLang / Inertia
+# Agent handoff — Inertia
 
 **Repo:** `C:\Users\mudit\OneDrive\Desktop\Inertia`  
 **Read first:** [Todo.md](../Todo.md), [.cursor/rules/physicslang-project.mdc](../.cursor/rules/physicslang-project.mdc), [docs/language-reference.md](language-reference.md)  

@@ -1,4 +1,4 @@
-# PhysicsLang language reference
+# Inertia language reference
 
 > **Version:** Phase 3 (2026) · **Extension:** `.phys`  
 > This document describes syntax and semantics **implemented today**. Features marked *planned* are on the roadmap in [Todo.md](../Todo.md).
@@ -25,7 +25,7 @@
 
 ## Overview
 
-PhysicsLang is designed for computational physics workflows:
+Inertia is designed for computational physics workflows:
 
 - **Compile-time SI checking** — catch `Force + Velocity`-style errors before run time  
 - **First-class quantum syntax** — gates, registers, Hamiltonians, expectation values  
@@ -556,7 +556,7 @@ cargo run -- check examples/quantum/grover.phys
 
 ## IDE support
 
-The **PhysicsLang IDE** (`apps/ide/`) provides:
+The **Inertia IDE** (`apps/ide/`) provides:
 
 | Feature | Shortcut / UI |
 |---------|----------------|

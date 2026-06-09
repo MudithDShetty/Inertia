@@ -16,6 +16,8 @@ mod pick;
 mod plots;
 mod vibration;
 mod viewer3d;
+mod volume;
+mod vtk;
 
 #[cfg(feature = "wgpu")]
 mod wgpu_render;
@@ -35,7 +37,8 @@ pub use fchk_grid::{
 pub use fchk_basis::{basis_from_fchk, gto_mo_at, BasisSet};
 pub use gaussian_log::{parse_gaussian_log, GaussianLogResult};
 pub use gjf::{
-    parse_gjf, parse_gjf_geometry, styled_geometry, CoordinateType, GaussianInput, MolRenderStyle,
+    parse_gjf, parse_gjf_geometry, styled_geometry, extract_gjf_coordinate_block,
+    replace_gjf_coordinate_block, CoordinateType, GaussianInput, MolRenderStyle,
 };
 pub use vibration::{
     animate_geometry, parse_log_vibrations, NormalMode, VibrationData,
@@ -48,11 +51,13 @@ pub use viewer3d::{
     element_symbol, infer_bonds, parse_structure, parse_xyz, parse_xyz_with_bonds, AtomBall,
     MoleculeGeometry, ScalarField, ViewerScene, WgpuViewerStub,
 };
+pub use volume::{ray_march_rgba, VolumeRenderConfig};
+pub use vtk::scalar_field_to_vtk;
 
 #[cfg(feature = "wgpu")]
 pub use wgpu_render::{
     render_field_isosurface_png, render_field_mo_isosurface_png, render_field_slice_3d_png,
-    render_field_slice_png, render_molecule_png,
+    render_field_slice_png, render_field_volume_png, render_molecule_png,
 };
 
 #[cfg(test)]

@@ -1,11 +1,11 @@
 ---
-description: PhysicsLang project context — read Todo.md for full roadmap and current priorities
+description: Inertia project context — read Todo.md for full roadmap and current priorities
 alwaysApply: true
 ---
 
-# PhysicsLang / Inertia Project
+# Inertia Project
 
-This workspace is **PhysicsLang** — a standalone `.phys` compiled language for all of physics, with Python FFI.
+This workspace is **Inertia** — a standalone `.phys` compiled language for all of physics, with Python FFI.
 
 ## Always read first
 

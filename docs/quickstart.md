@@ -1,6 +1,6 @@
 # Quick start
 
-PhysicsLang programs are plain text files with the `.phys` extension. The compiler checks **SI dimensions** (you cannot add a force to a velocity) and provides a **native quantum syntax** that maps to Qiskit/PennyLane via Python FFI.
+Inertia programs are plain text files with the `.phys` extension. The compiler checks **SI dimensions** (you cannot add a force to a velocity) and provides a **native quantum syntax** that maps to Qiskit/PennyLane via Python FFI.
 
 ## Prerequisites
 

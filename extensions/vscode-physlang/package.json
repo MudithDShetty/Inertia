@@ -1,6 +1,6 @@
 {
   "name": "physlang",
-  "displayName": "PhysicsLang",
+  "displayName": "Inertia",
   "description": "Syntax highlighting and LSP for .phys files",
   "version": "0.1.0",
   "publisher": "physlang",
@@ -11,7 +11,7 @@
   "contributes": {
     "languages": [{
       "id": "physlang",
-      "aliases": ["PhysicsLang", "physlang"],
+      "aliases": ["Inertia", "physlang"],
       "extensions": [".phys"],
       "configuration": "./language-configuration.json"
     }],
@@ -22,7 +22,7 @@
     }],
     "commands": [{
       "command": "physlang.check",
-      "title": "PhysicsLang: Check File"
+      "title": "Inertia: Check File"
     }]
   },
   "scripts": {

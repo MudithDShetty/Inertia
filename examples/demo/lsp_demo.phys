@@ -5,6 +5,7 @@
 //   - F12 on `abs` → stdlib/core.phys
 //   - F12 on `demo_energy` → this function
 //   - Lightbulb on bad_units line → dimension mismatch quick-fix
+//   - Lightbulb on missing_unit line → Add unit suffix `m/s` for Velocity
 //   - Rename / Find references on `theta`
 
 fn demo_energy(theta: Float) -> Float {
@@ -15,4 +16,9 @@ fn demo_energy(theta: Float) -> Float {
 fn bad_units() -> Force {
     let x: Mass = 1.0
     return x
+}
+
+fn missing_unit() -> Int {
+    let v: Velocity = 9.8
+    return 0
 }

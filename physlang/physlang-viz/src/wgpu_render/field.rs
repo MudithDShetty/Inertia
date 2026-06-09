@@ -4,10 +4,12 @@ use crate::camera::{bounds_center_radius, mat4_mul, OrbitCamera};
 use crate::field_slice::{extract_slice, slice_to_rgba, SliceAxis};
 use crate::marching_cubes::extract_isosurface;
 use crate::viewer3d::ScalarField;
+use crate::volume::{ray_march_rgba, VolumeRenderConfig};
 use crate::wgpu_render::device::{
     create_mesh_pipeline, draw_mesh, readback_png, shared_device, upload_camera_bind_group,
     upload_mesh, GpuDevice, GpuVertex, OffscreenTarget,
 };
+use super::volume_gpu;
 
 /// Render a Z-slice as a textured quad in 3D (orbit camera).
 pub fn render_field_slice_3d_png(
@@ -26,6 +28,18 @@ pub fn render_field_slice_png(field: &ScalarField, z_index: usize) -> Result<Vec
     let slice = extract_slice(field, SliceAxis::Z, z_index)?;
     let rgba = slice_to_rgba(&slice);
     upload_rgba_png(slice.width as u32, slice.height as u32, &rgba)
+}
+
+/// CPU ray-march volume compositing → PNG; prefers GPU 3D texture when available.
+pub fn render_field_volume_png(
+    field: &ScalarField,
+    camera: &OrbitCamera,
+) -> Result<Vec<u8>, String> {
+    if let Ok(png) = volume_gpu::render_field_volume_gpu_png(field, camera) {
+        return Ok(png);
+    }
+    let rgba = ray_march_rgba(field, camera, VolumeRenderConfig::default())?;
+    upload_rgba_png(camera.width, camera.height, &rgba)
 }
 
 fn render_textured_quad_png(
@@ -289,6 +303,18 @@ mod tests {
             ..Default::default()
         };
         let png = render_field_mo_isosurface_png(&field, 0.35, &cam).expect("mo iso");
+        assert_eq!(&png[0..8], &[137, 80, 78, 71, 13, 10, 26, 10]);
+    }
+
+    #[test]
+    fn field_volume_png_non_empty() {
+        let field = demo_gaussian_field(24);
+        let cam = OrbitCamera {
+            width: 128,
+            height: 128,
+            ..Default::default()
+        };
+        let png = render_field_volume_png(&field, &cam).expect("volume");
         assert_eq!(&png[0..8], &[137, 80, 78, 71, 13, 10, 26, 10]);
     }
 }

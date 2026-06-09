@@ -1,16 +1,18 @@
 use physlang_lsp::{
     code_actions_at, completions_for_prefix, definition_at_with_stdlib, diagnostics_for_source,
-    find_references_at, find_stdlib_dir, hover_for_position, index_stdlib_dir, rename_at,
-    CompletionKind, DiagnosticSeverity,
+    doc_lines_before, find_references_at, find_stdlib_dir, generate_stdlib_markdown,
+    hover_for_position, index_stdlib_dir, rename_at, CompletionKind, DiagnosticSeverity,
 };
 use physlang_runtime::compile_and_run;
 use physlang_viz::{
     animate_geometry, cube_to_scalar_field, demo_gaussian_field, element_symbol, extract_slice,
     fchk_density_field, fchk_esp_field, fchk_mo_field, parse_cube, parse_fchk, parse_gaussian_log,
     parse_gjf, parse_log_vibrations, parse_structure, pick_molecule_atom,
+    extract_gjf_coordinate_block, replace_gjf_coordinate_block,
     render_field_isosurface_png, render_field_mo_isosurface_png, render_field_slice_3d_png,
-    render_field_slice_png, render_molecule_png, scalar_field_to_cube,
-    MolRenderStyle, OrbitCamera, ScalarField, SliceAxis, VibrationData,
+    render_field_slice_png, render_field_volume_png, render_molecule_png, scalar_field_to_cube,
+    scalar_field_to_vtk, ConvergencePlot, MolRenderStyle, OrbitCamera, ScalarField, SliceAxis,
+    VibrationData,
 };
 mod chem_jobs;
 
@@ -138,7 +140,7 @@ pub struct IdeVibrationInfo {
     modes: Vec<IdeVibrationMode>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct IdeCamera {
     pub yaw: f32,
     pub pitch: f32,
@@ -193,6 +195,11 @@ fn write_text_file(path: String, content: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn write_binary_file(path: String, data: Vec<u8>) -> Result<(), String> {
+    fs::write(&path, &data).map_err(|e| format!("write {}: {e}", path))
+}
+
+#[tauri::command]
 fn list_phys_files(root: String) -> Result<Vec<ProjectFile>, String> {
     let root_path = PathBuf::from(&root);
     if !root_path.is_dir() {
@@ -203,6 +210,88 @@ fn list_phys_files(root: String) -> Result<Vec<ProjectFile>, String> {
     append_stdlib_files(&root_path, &mut files);
     files.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(files)
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct PackageCatalogEntry {
+    id: String,
+    name: String,
+    description: String,
+    source: String,
+    #[serde(default)]
+    builtin: bool,
+}
+
+#[derive(Deserialize)]
+struct PackageCatalog {
+    packages: Vec<PackageCatalogEntry>,
+}
+
+fn find_catalog_path(start: &Path) -> Option<PathBuf> {
+    let mut cur = Some(start);
+    while let Some(dir) = cur {
+        let candidate = dir.join("packages").join("catalog.json");
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+        cur = dir.parent();
+    }
+    None
+}
+
+#[tauri::command]
+fn list_package_catalog(root: String) -> Result<Vec<PackageCatalogEntry>, String> {
+    let catalog_path =
+        find_catalog_path(Path::new(&root)).ok_or("packages/catalog.json not found")?;
+    let text = fs::read_to_string(&catalog_path).map_err(|e| e.to_string())?;
+    let catalog: PackageCatalog = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    Ok(catalog.packages)
+}
+
+#[tauri::command]
+fn list_installed_packages(root: String) -> Result<Vec<String>, String> {
+    let dir = Path::new(&root).join(".inertia").join("packages");
+    if !dir.is_dir() {
+        return Ok(vec![]);
+    }
+    let mut ids = Vec::new();
+    for entry in fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("phys") {
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                ids.push(stem.to_string());
+            }
+        }
+    }
+    ids.sort();
+    Ok(ids)
+}
+
+#[tauri::command]
+fn install_package(root: String, package_id: String) -> Result<String, String> {
+    let root_path = Path::new(&root);
+    let catalog_path =
+        find_catalog_path(root_path).ok_or("packages/catalog.json not found")?;
+    let repo_root = catalog_path
+        .parent()
+        .and_then(|p| p.parent())
+        .ok_or("invalid catalog path")?;
+    let text = fs::read_to_string(&catalog_path).map_err(|e| e.to_string())?;
+    let catalog: PackageCatalog = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let pkg = catalog
+        .packages
+        .iter()
+        .find(|p| p.id == package_id)
+        .ok_or_else(|| format!("unknown package: {package_id}"))?;
+    let src = repo_root.join(&pkg.source);
+    if !src.is_file() {
+        return Err(format!("package source missing: {}", src.display()));
+    }
+    let dest_dir = root_path.join(".inertia").join("packages");
+    fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
+    let dest = dest_dir.join(format!("{package_id}.phys"));
+    fs::copy(&src, &dest).map_err(|e| e.to_string())?;
+    Ok(format!("Installed {} → {}", pkg.name, dest.display()))
 }
 
 fn append_stdlib_files(root: &Path, out: &mut Vec<ProjectFile>) {
@@ -503,6 +592,248 @@ fn export_fchk_density_cube(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn export_field_vtk(path: String) -> Result<String, String> {
+    let field = load_scalar_field(&path)?;
+    let base = path.split('|').next().unwrap_or(&path);
+    let stem = Path::new(base)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("field");
+    let vtk = scalar_field_to_vtk(&field, &format!("{stem} scalar field"));
+    let out_path = if path.contains('|') {
+        Path::new(base).with_extension("field.vtk")
+    } else {
+        Path::new(base).with_extension("vtk")
+    };
+    fs::write(&out_path, &vtk).map_err(|e| format!("write {}: {e}", out_path.display()))?;
+    out_path
+        .to_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| "invalid output path".into())
+}
+
+#[tauri::command]
+fn demo_plot() -> ConvergencePlot {
+    ConvergencePlot::vqe_demo()
+}
+
+#[derive(Deserialize)]
+struct IdeAtomInput {
+    symbol: String,
+    x: f64,
+    y: f64,
+    z: f64,
+}
+
+#[tauri::command]
+fn save_molecule_xyz(path: String, title: String, atoms: Vec<IdeAtomInput>) -> Result<String, String> {
+    let base = Path::new(&path);
+    let stem = base
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("mol");
+    let out = base.with_file_name(format!("{stem}_edited.xyz"));
+    let mut lines = vec![title.clone(), atoms.len().to_string()];
+    for a in &atoms {
+        lines.push(format!("{} {} {} {}", a.symbol.trim(), a.x, a.y, a.z));
+    }
+    let text = format!("{}\n", lines.join("\n"));
+    fs::write(&out, &text).map_err(|e| format!("write {}: {e}", out.display()))?;
+    out.to_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| "invalid output path".into())
+}
+
+#[tauri::command]
+fn run_python_snippet(source: String) -> RunResult {
+    let output = match Command::new("python").args(["-c", &source]).output() {
+        Ok(o) => o,
+        Err(e) => {
+            return RunResult {
+                stdout: vec![],
+                result: None,
+                error: Some(format!("python: {e}")),
+                backend: "python snippet".into(),
+            };
+        }
+    };
+    cli_output_to_result(output, "python snippet")
+}
+
+#[tauri::command]
+fn export_molecule_mp4(
+    path: String,
+    camera: IdeCamera,
+    frames: Option<u32>,
+    style: Option<String>,
+) -> Result<String, String> {
+    let n = frames.unwrap_or(48).clamp(8, 120);
+    let source = fs::read_to_string(&path).map_err(|e| format!("read {path}: {e}"))?;
+    let geom = load_molecule_geometry(&path, &source)?;
+    let render_style = style
+        .as_deref()
+        .map(MolRenderStyle::from_str_loose)
+        .unwrap_or(MolRenderStyle::BallAndStick);
+    let base = Path::new(&path);
+    let frames_dir = base.with_extension("frames");
+    if frames_dir.exists() {
+        let _ = fs::remove_dir_all(&frames_dir);
+    }
+    fs::create_dir_all(&frames_dir).map_err(|e| format!("mkdir {}: {e}", frames_dir.display()))?;
+    let base_yaw = camera.yaw;
+    for i in 0..n {
+        let mut cam: OrbitCamera = camera.clone().into();
+        cam.yaw = base_yaw + (i as f32 / n as f32) * std::f32::consts::TAU;
+        let png = render_molecule_png(&geom, &cam, render_style)?;
+        fs::write(
+            frames_dir.join(format!("frame_{i:04}.png")),
+            png,
+        )
+        .map_err(|e| format!("write frame: {e}"))?;
+    }
+    let mp4 = base.with_extension("spin.mp4");
+    let ffmpeg_ok = Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-framerate",
+            "24",
+            "-i",
+            "frame_%04d.png",
+            "-pix_fmt",
+            "yuv420p",
+        ])
+        .arg(mp4.as_os_str())
+        .current_dir(&frames_dir)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if ffmpeg_ok && mp4.is_file() {
+        return Ok(format!("MP4: {}", mp4.display()));
+    }
+    Ok(format!(
+        "Wrote {n} PNG frames to {} — install ffmpeg and re-export for MP4",
+        frames_dir.display()
+    ))
+}
+
+#[derive(Serialize)]
+struct GjfCoordBlock {
+    coordinate_type: String,
+    lines: Vec<String>,
+}
+
+#[tauri::command]
+fn gjf_get_coordinates(path: String) -> Result<GjfCoordBlock, String> {
+    let source = fs::read_to_string(&path).map_err(|e| format!("read {path}: {e}"))?;
+    let (lines, ty) = extract_gjf_coordinate_block(&source)?;
+    Ok(GjfCoordBlock {
+        coordinate_type: match ty {
+            physlang_viz::CoordinateType::Cartesian => "cartesian".into(),
+            physlang_viz::CoordinateType::ZMatrix => "z_matrix".into(),
+        },
+        lines,
+    })
+}
+
+#[tauri::command]
+fn gjf_set_coordinates(path: String, lines: Vec<String>) -> Result<(), String> {
+    let source = fs::read_to_string(&path).map_err(|e| format!("read {path}: {e}"))?;
+    let updated = replace_gjf_coordinate_block(&source, &lines)?;
+    fs::write(&path, updated).map_err(|e| format!("write {path}: {e}"))
+}
+
+#[tauri::command]
+fn export_field_mp4(
+    path: String,
+    index: usize,
+    camera: IdeCamera,
+    frames: Option<u32>,
+    mode: Option<String>,
+) -> Result<String, String> {
+    let n = frames.unwrap_or(48).clamp(8, 120);
+    let field = load_scalar_field(&path)?;
+    let base = path.split('|').next().unwrap_or(&path);
+    let base_path = Path::new(base);
+    let frames_dir = base_path.with_extension("field.frames");
+    if frames_dir.exists() {
+        let _ = fs::remove_dir_all(&frames_dir);
+    }
+    fs::create_dir_all(&frames_dir).map_err(|e| format!("mkdir {}: {e}", frames_dir.display()))?;
+    let use_iso = mode.as_deref() == Some("isosurface");
+    let base_yaw = camera.yaw;
+    for i in 0..n {
+        let mut cam: OrbitCamera = camera.clone().into();
+        cam.yaw = base_yaw + (i as f32 / n as f32) * std::f32::consts::TAU;
+        let png = if use_iso {
+            let iso = field_isovalue(&field, Some(0.35), 1.0);
+            render_field_isosurface_png(&field, iso, &cam)?
+        } else {
+            render_field_slice_3d_png(&field, index, &cam)?
+        };
+        fs::write(
+            frames_dir.join(format!("frame_{i:04}.png")),
+            png,
+        )
+        .map_err(|e| format!("write frame: {e}"))?;
+    }
+    let mp4 = base_path.with_extension("field.spin.mp4");
+    let ffmpeg_ok = Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-framerate",
+            "24",
+            "-i",
+            "frame_%04d.png",
+            "-pix_fmt",
+            "yuv420p",
+        ])
+        .arg(mp4.as_os_str())
+        .current_dir(&frames_dir)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if ffmpeg_ok && mp4.is_file() {
+        return Ok(format!("MP4: {}", mp4.display()));
+    }
+    Ok(format!(
+        "Wrote {n} field frames to {} — install ffmpeg for MP4",
+        frames_dir.display()
+    ))
+}
+
+#[tauri::command]
+fn run_shell_command(cwd: Option<String>, command: String) -> RunResult {
+    let mut cmd = if cfg!(windows) {
+        let mut c = Command::new("cmd");
+        c.args(["/C", &command]);
+        c
+    } else {
+        let mut c = Command::new("sh");
+        c.args(["-c", &command]);
+        c
+    };
+    if let Some(dir) = cwd.filter(|d| !d.is_empty()) {
+        cmd.current_dir(dir);
+    }
+    let output = match cmd.output() {
+        Ok(o) => o,
+        Err(e) => {
+            return RunResult {
+                stdout: vec![],
+                result: None,
+                error: Some(format!("shell: {e}")),
+                backend: "shell".into(),
+            };
+        }
+    };
+    cli_output_to_result(output, "shell")
+}
+
+#[tauri::command]
 fn chem_list_backends() -> Vec<ChemBackendInfo> {
     list_chem_backends()
 }
@@ -692,6 +1023,8 @@ fn render_field_frame(
             let iso = field_isovalue(&field, iso_level, sign);
             render_field_isosurface_png(&field, iso, &cam)?
         }
+    } else if mode.as_deref() == Some("volume") {
+        render_field_volume_png(&field, &cam)?
     } else {
         render_field_slice_3d_png(&field, index, &cam)?
     };
@@ -703,6 +1036,8 @@ fn render_field_frame(
             } else {
                 "wgpu-isosurface".into()
             }
+        } else if mode.as_deref() == Some("volume") {
+            "wgpu-volume-gpu".into()
         } else {
             "wgpu-field-slice-3d".into()
         },
@@ -939,6 +1274,15 @@ fn check_phys_source(source: String) -> Vec<IdeDiagnostic> {
 }
 
 #[tauri::command]
+fn format_phys_source(source: String) -> String {
+    source
+        .lines()
+        .map(|l| l.trim_end())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[tauri::command]
 fn complete_phys_prefix(
     source: String,
     prefix: String,
@@ -964,10 +1308,16 @@ fn complete_phys_prefix(
                 if items.iter().any(|i| i.label == name) {
                     continue;
                 }
-                let detail = match sym.file.file_name().and_then(|n| n.to_str()) {
+                let mut detail = match sym.file.file_name().and_then(|n| n.to_str()) {
                     Some(f) => format!("stdlib: {f}"),
                     None => "stdlib".into(),
                 };
+                if let Ok(src) = fs::read_to_string(&sym.file) {
+                    let docs = doc_lines_before(&src, sym.line);
+                    if let Some(last) = docs.last() {
+                        detail = format!("{detail} — {last}");
+                    }
+                }
                 items.push(IdeCompletion {
                     label: name.clone(),
                     detail: Some(detail),
@@ -1036,6 +1386,13 @@ async fn chem_submit_orca_async(path: String) -> Result<ChemJobEnqueueResult, St
 }
 
 #[tauri::command]
+fn stdlib_reference_markdown(root: String) -> Result<String, String> {
+    let stdlib = find_stdlib_dir(Path::new(&root))
+        .ok_or_else(|| format!("stdlib/ not found under {root}"))?;
+    Ok(generate_stdlib_markdown(&stdlib))
+}
+
+#[tauri::command]
 fn goto_phys_definition(
     source: String,
     line: u32,
@@ -1080,6 +1437,21 @@ fn hover_phys_source(source: String, line: u32, column: u32) -> Option<IdeHover>
     hover_for_position(&source, line, column).map(|h| IdeHover {
         contents: h.contents,
     })
+}
+
+#[tauri::command]
+fn debug_eval_phys(expr: String) -> RunResult {
+    let trimmed = expr.trim();
+    if trimmed.is_empty() {
+        return RunResult {
+            stdout: vec![],
+            result: None,
+            error: Some("empty expression".into()),
+            backend: "debug-eval".into(),
+        };
+    }
+    let source = format!("fn main() -> Int {{\n    return ({trimmed})\n}}\n");
+    run_phys_source(source, None)
 }
 
 #[tauri::command]
@@ -1270,7 +1642,12 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             read_text_file,
             write_text_file,
+            write_binary_file,
             list_phys_files,
+            list_package_catalog,
+            list_installed_packages,
+            install_package,
+            debug_eval_phys,
             parse_molecule_file,
             parse_gaussian_log_file,
             load_cube_file,
@@ -1290,6 +1667,15 @@ pub fn run() {
             pick_molecule_atom_cmd,
             render_field_frame,
             export_fchk_density_cube,
+            export_field_vtk,
+            demo_plot,
+            save_molecule_xyz,
+            run_python_snippet,
+            export_molecule_mp4,
+            export_field_mp4,
+            gjf_get_coordinates,
+            gjf_set_coordinates,
+            run_shell_command,
             chem_list_backends,
             chem_submit_gaussian,
             chem_submit_orca,
@@ -1299,8 +1685,10 @@ pub fn run() {
             chem_job_last_result,
             chem_job_cancel_cmd,
             goto_phys_definition,
+            stdlib_reference_markdown,
             phys_code_actions,
             check_phys_source,
+            format_phys_source,
             complete_phys_prefix,
             find_phys_references,
             rename_phys_symbol,
@@ -1309,5 +1697,5 @@ pub fn run() {
             run_phys_file,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running PhysicsLang IDE");
+        .expect("error while running Inertia IDE");
 }

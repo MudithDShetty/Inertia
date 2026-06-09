@@ -1,6 +1,6 @@
-# PhysicsLang — Master Todo List
+# Inertia — Master Todo List
 
-> **Project:** Inertia / PhysicsLang — all-in-one physics programming hub  
+> **Project:** Inertia — all-in-one physics programming hub  
 > **Language model:** Standalone `.phys` compiled language + Python FFI bridge  
 > **First MVP vertical:** Quantum computing (Qiskit / PennyLane)  
 > **Long-term vision:** 9-layer stack — IDE, compiler, math, simulation, atoms/quantum, viz, lab instrumentation, legacy interop, multi-hardware backends  
@@ -198,32 +198,32 @@ Status key: `[ ]` not started · `[~]` in progress · `[x]` done
 
 **Goal:** Unified hub experience; molecular/atomic tooling; full visualization.
 
-### PhysicsLang IDE — unified shell
+### Inertia IDE — unified shell
 - [x] Tauri (or Electron) desktop app shell
 - [x] Monaco editor embedded with `.phys` support
-- [ ] Notebook interface: `.phys` cells + Python cells mixed
+- [x] Notebook interface: `.phys` + Python cells; **Open NB** / **Save NB** (`.inb` JSON)
 - [x] Project explorer: `.phys` files, stdlib, examples
-- [~] Integrated terminal
-- [ ] Debugger stub: breakpoints, variable inspect (LSP DAP)
+- [x] Integrated terminal (shell command bar in output panel; project-root cwd)
+- [~] Debugger stub: **Debug** eval modal (`debug_eval_phys`); full DAP breakpoints pending
 - [~] Job manager panel: queue, status, logs for long simulations (queue + cancel + live stderr)
-- [ ] Package hub: browse/install physics packages (registry stub)
+- [~] Package hub: browse/install via `packages/catalog.json` → `.inertia/packages/` (registry remote TBD)
 
 ### LSP — full feature set
-- [~] Autocomplete for stdlib, user symbols (stdlib indexed from project root)
+- [~] Autocomplete for stdlib, user symbols (stdlib indexed + doc snippet in detail)
 - [~] Rename symbol
 - [~] Find references
-- [x] Code actions: import missing unit, fix dimension error (quick-fix stubs)
-- [~] Formatting (`phys fmt`)
+- [x] Code actions: import missing unit, fix dimension error (quick-fix stubs + unit suffix on typed literals)
+- [x] Formatting (`phys fmt` stub — **Format** toolbar + Shift+Alt+F)
 - [x] Go-to-definition (user symbols + stdlib, F12)
 
 ### PhysicsViz — 3D engine
 - [x] wgpu offscreen rendering backend (Tauri PNG frames; winit window deferred)
 - [x] 3D field renderer: scalar Z-slice plane in 3D + 2D heatmap fallback
 - [x] Isosurface extraction (marching cubes)
-- [~] Volume rendering stub
+- [x] Volume rendering (GPU 3D-texture ray-march; CPU fallback for large grids)
 - [x] Camera controls: orbit, zoom (pan deferred)
-- [ ] Time-series playback: animate simulation frames
-- [ ] Export: PNG, MP4, VTK
+- [~] Time-series playback: Field **Play** animates Z-slices (full sim frame pipeline pending)
+- [x] Export: PNG + VTK + MP4 spin (molecule + field 3D/Iso; ffmpeg optional)
 
 ### PhysicsViz — GaussView-style (quantum chemistry GUI)
 - [x] Gaussian input (.gjf / .com): route, title, charge/mult, Cartesian + Z-matrix
@@ -234,7 +234,7 @@ Status key: `[ ]` not started · `[~]` in progress · `[x]` done
 - [x] Normal-mode animation from log/fchk (mode select + animate)
 - [x] Full fchk density → grid → orbital/ESP surfaces (GTO density + Alpha MO GTO grid + quantum Hartree ESP)
 - [x] Measure distance, angle, dihedral (interactive picking — canvas + wgpu ray pick)
-- [ ] Structure builder / Z-matrix editor in IDE
+- [x] Structure builder / Z-matrix editor (atom table → XYZ; **Z-mat** coord block edit on .gjf)
 - [~] Submit Gaussian/ORCA jobs (job manager integration)
 - [x] Orbital / density / ESP isosurface viewer (GaussView Surfaces — Density/HOMO/LUMO/MO dual-lobe/ESP toolbar)
 
@@ -246,8 +246,8 @@ Status key: `[ ]` not started · `[~]` in progress · `[x]` done
 - [ ] Supercell / unit cell visualization
 
 ### PhysicsViz — 2D plots
-- [ ] Live charts: line, scatter, histogram, contour
-- [ ] Real-time streaming from running simulation
+- [x] Live charts: line / scatter / histogram / contour heatmap (Plot tab mode bar)
+- [~] Real-time streaming from running simulation (Run → Plot tab)
 - [ ] Dashboard layout system (grid of plots)
 
 ### PhysicsAtom — molecular & atomic layer
@@ -469,7 +469,7 @@ Status key: `[ ]` not started · `[~]` in progress · `[x]` done
 ### Documentation
 - [~] Language reference manual — [docs/language-reference.md](docs/language-reference.md) + IDE **Docs** button
 - [~] Quick start — [docs/quickstart.md](docs/quickstart.md)
-- [ ] Standard library docs (auto-generated from `.phys` doc comments)
+- [x] Standard library docs (auto-generated from `.phys` doc comments — `scripts/gen-stdlib-docs.ps1`, IDE **Stdlib** button)
 - [ ] Tutorials: quantum, CFD, MD, lab instrumentation
 - [ ] Migration guides: from Python, Julia, Fortran
 
@@ -491,7 +491,7 @@ Status key: `[ ]` not started · `[~]` in progress · `[x]` done
 
 | Layer | Crate / path | Phase |
 |-------|-------------|-------|
-| 1. PhysicsLang IDE | `apps/ide/`, `extensions/vscode-physlang/` | 0, 3 |
+| 1. Inertia IDE | `apps/ide/`, `extensions/vscode-physlang/` | 0, 3 |
 | 2. Compiler core | `physlang/physlang-{parser,types,mir,llvm}/` | 0, 1, 2 |
 | 3. PhysicsMath | `physlang/physlang-runtime/`, `stdlib/math.phys` | 2 |
 | 4. PhysicsSim | `physlang/physlang-sim/`, `stdlib/sim/` | 2 stub, 4 full |
@@ -507,12 +507,11 @@ Status key: `[ ]` not started · `[~]` in progress · `[x]` done
 
 **Active phase:** Phase 3 — IDE shell + PhysicsViz + PhysicsAtom  
 **Next actionable items:**
-1. Expand docs: stdlib auto-docs, tutorial notebooks
-2. Volume rendering stub + export PNG/MP4/VTK
-3. Structure builder / Z-matrix editor
-4. Notebook interface
-5. LSP: richer code actions (unit suffix on literals)
+1. Full DAP debugger (breakpoints, stack, variables)
+2. Remote package registry / version pinning
+3. LSP rename/refs across files
+4. Multi-plot dashboard grid
 
 ---
 
-*Last updated: 2026-06-08 (Phase 3: quantum ESP, dual-lobe MO, LSP stdlib goto + code actions).*
+*Last updated: 2026-06-09 (GPU volume, package catalog install, debug eval).*

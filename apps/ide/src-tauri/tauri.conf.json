@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "PhysicsLang IDE",
+  "productName": "Inertia IDE",
   "version": "0.1.0",
   "identifier": "dev.physlang.ide",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "PhysicsLang IDE",
+        "title": "Inertia IDE",
         "width": 1280,
         "height": 800,
         "resizable": true

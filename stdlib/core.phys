@@ -1,10 +1,15 @@
-// PhysicsLang core standard library — unit constants
+// Inertia core standard library — unit constants and basic math
 
+// Speed of light in vacuum (m/s)
 let c_light: Float = 299792458.0
+// Standard gravity (m/s²)
 let g_std: Float = 9.80665
+// Reduced Planck constant (J·s)
 let hbar_si: Float = 1.054571817e-34
+// Elementary charge (C)
 let e_charge: Float = 1.602176634e-19
 
+// Absolute value (identity stub for interpreter)
 fn abs(x: Float) -> Float {
     return x
 }

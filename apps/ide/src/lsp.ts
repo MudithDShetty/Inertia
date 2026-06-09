@@ -204,17 +204,13 @@ export function registerLspProviders(
 
   monaco.languages.registerDocumentFormattingEditProvider(PHYSLANG_LANGUAGE_ID, {
 
-    provideDocumentFormattingEdits(model) {
+    async provideDocumentFormattingEdits(model) {
 
-      const formatted = model
+      const formatted = await invoke<string>("format_phys_source", {
 
-        .getValue()
+        source: model.getValue(),
 
-        .split("\n")
-
-        .map((line) => line.trimEnd())
-
-        .join("\n");
+      });
 
       return [
 

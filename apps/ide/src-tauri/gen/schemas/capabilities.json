@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"Default capabilities for PhysicsLang IDE","local":true,"windows":["main"],"permissions":["core:default","dialog:default"]}}
+{"default":{"identifier":"default","description":"Default capabilities for Inertia IDE","local":true,"windows":["main"],"permissions":["core:default","dialog:default"]}}

@@ -1,11 +1,12 @@
-# PhysicsLang documentation
+# Inertia documentation
 
-PhysicsLang (`.phys`) is a standalone compiled language for physics — SI unit checking at compile time, native quantum circuit syntax, and Python FFI for Qiskit, PennyLane, and scientific libraries.
+Inertia (`.phys`) is a standalone compiled language for physics — SI unit checking at compile time, native quantum circuit syntax, and Python FFI for Qiskit, PennyLane, and scientific libraries.
 
 | Document | Audience | Description |
 |----------|----------|-------------|
 | **[Quick start](quickstart.md)** | New users | Install, first program, CLI, IDE in 10 minutes |
 | **[Language reference](language-reference.md)** | Daily use | Complete syntax, types, units, quantum, stdlib |
+| **[Standard library](stdlib-reference.md)** | Daily use | Auto-generated from `stdlib/*.phys` doc comments |
 | **[Architecture](architecture.md)** | Contributors | Nine-layer stack and crate boundaries |
 
 ## Recommended reading order
@@ -29,7 +30,8 @@ PhysicsLang (`.phys`) is a standalone compiled language for physics — SI unit 
 
 ## Getting help in the IDE
 
-- **Docs** toolbar button — opens this language reference in the editor  
+- **Docs** toolbar button — opens the language reference in the editor  
+- **Stdlib** toolbar button — generated stdlib reference from `stdlib/*.phys`  
 - **Check** — inline unit and type errors  
 - **Hover** — gate and SI type hints on supported symbols  
 - **F12** — go to definition for user-defined symbols  

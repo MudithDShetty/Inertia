@@ -1,4 +1,4 @@
-# PhysicsLang
+# Inertia
 
 **All-in-one physics programming language** — standalone `.phys` files, SI unit type system, native autodiff, quantum computing (Qiskit/PennyLane), and a path to simulation, visualization, and lab instrumentation.
 
@@ -83,7 +83,7 @@ IDE → Compiler (units, autodiff, LLVM) → PhysicsMath → PhysicsSim → Phys
   → PhysicsViz → PhysicsLab → Interop → Hardware (CPU/CUDA/Metal/MPI)
 ```
 
-## PhysicsLang IDE (desktop)
+## Inertia IDE (desktop)
 
 Minimal Tauri + Monaco shell at `apps/ide/` — open `.phys` files, project explorer, syntax highlighting (same grammar as `extensions/vscode-physlang`), **Run** via native interpreter (`physlang-runtime`, same as `phys run`), with CLI/Python fallbacks.
 

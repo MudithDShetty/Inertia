@@ -1,0 +1,39 @@
+{
+  "packages": [
+    {
+      "id": "core",
+      "name": "Core",
+      "description": "Built-in math, units, and utilities",
+      "source": "stdlib/core.phys",
+      "builtin": true
+    },
+    {
+      "id": "math",
+      "name": "Math",
+      "description": "Linear algebra and FFT stubs",
+      "source": "stdlib/math.phys",
+      "builtin": true
+    },
+    {
+      "id": "quantum",
+      "name": "Quantum",
+      "description": "Gates, circuits, and VQE helpers",
+      "source": "stdlib/quantum.phys",
+      "builtin": true
+    },
+    {
+      "id": "atom",
+      "name": "Atom",
+      "description": "Molecular and atomic types",
+      "source": "stdlib/atom.phys",
+      "builtin": true
+    },
+    {
+      "id": "constants",
+      "name": "Constants",
+      "description": "Physical constants (SI)",
+      "source": "stdlib/constants.phys",
+      "builtin": true
+    }
+  ]
+}

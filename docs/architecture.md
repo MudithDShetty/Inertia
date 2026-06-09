@@ -1,12 +1,12 @@
-# PhysicsLang Architecture
+# Inertia Architecture
 
-PhysicsLang is a standalone `.phys` compiled language with Python FFI, organized as a nine-layer stack.
+Inertia is a standalone `.phys` compiled language with Python FFI, organized as a nine-layer stack.
 
 ## Layer diagram
 
 ```mermaid
 flowchart TB
-  subgraph L1 [1_PhysicsLang_IDE]
+  subgraph L1 [1_Inertia_IDE]
     Editor[Editor_LSP]
     Notebook[Notebook]
     JobMgr[Job_Manager]

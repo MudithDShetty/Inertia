@@ -1,0 +1,8 @@
+// Inertia notebook demo — use IDE Notebook + Run NB
+//
+// Cell 1 (.phys): type-checked Inertia
+// Cell 2 (Python): analysis / plotting via Python
+
+fn main() -> Int {
+    return 0
+}

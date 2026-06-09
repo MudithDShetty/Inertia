@@ -1,11 +1,11 @@
-# PhysicsLang Phase 3 smoke test (Windows PowerShell)
+# Inertia Phase 3 smoke test (Windows PowerShell)
 # Run from repo root:  .\examples\demo\smoke-test.ps1
 
 $ErrorActionPreference = "Stop"
 $env:Path = "$env:USERPROFILE\.cargo\bin;" + $env:Path
 Set-Location $PSScriptRoot\..\..   # repo root
 
-Write-Host "=== PhysicsLang smoke test ===" -ForegroundColor Cyan
+Write-Host "=== Inertia smoke test ===" -ForegroundColor Cyan
 
 Write-Host "`n[1/6] physlang-lsp tests..."
 cargo test -p physlang-lsp --lib --quiet

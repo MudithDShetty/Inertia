@@ -157,6 +157,112 @@ pub fn parse_gjf(source: &str) -> Result<GaussianInput, String> {
     })
 }
 
+/// Raw coordinate lines from a `.gjf` / `.com` (Z-matrix or Cartesian).
+pub fn extract_gjf_coordinate_block(source: &str) -> Result<(Vec<String>, CoordinateType), String> {
+    let lines: Vec<&str> = source.lines().collect();
+    let mut i = 0usize;
+    while i < lines.len() {
+        let line = lines[i].trim();
+        if line.is_empty() || line.starts_with('#') {
+            i += 1;
+            continue;
+        }
+        if line.starts_with('#') {
+            while i < lines.len() && (lines[i].trim().starts_with('#') || lines[i].trim().is_empty()) {
+                i += 1;
+            }
+            continue;
+        }
+        break;
+    }
+    while i < lines.len() && !lines[i].trim().is_empty() {
+        let line = lines[i].trim();
+        if line.starts_with('#') || parse_charge_mult(line).is_some() {
+            break;
+        }
+        i += 1;
+    }
+    while i < lines.len() && lines[i].trim().is_empty() {
+        i += 1;
+    }
+    if parse_charge_mult(lines.get(i).unwrap_or(&"").trim()).is_none() {
+        return Err("gjf: missing charge/multiplicity line".into());
+    }
+    i += 1;
+    let mut coord_lines = Vec::new();
+    while i < lines.len() {
+        let line = lines[i].trim();
+        if line.is_empty() || line.starts_with("--") || line.starts_with('#') {
+            break;
+        }
+        coord_lines.push(line.to_string());
+        i += 1;
+    }
+    if coord_lines.is_empty() {
+        return Err("gjf: no coordinate lines".into());
+    }
+    let coord_type = if looks_cartesian(&coord_lines[0]) {
+        CoordinateType::Cartesian
+    } else {
+        CoordinateType::ZMatrix
+    };
+    Ok((coord_lines, coord_type))
+}
+
+/// Replace coordinate block in Gaussian input; preserves route/title/charge/mult.
+pub fn replace_gjf_coordinate_block(source: &str, new_lines: &[String]) -> Result<String, String> {
+    if new_lines.is_empty() {
+        return Err("gjf: empty coordinate block".into());
+    }
+    let lines: Vec<&str> = source.lines().collect();
+    let mut i = 0usize;
+    while i < lines.len() {
+        let t = lines[i].trim();
+        if t.is_empty() {
+            i += 1;
+            continue;
+        }
+        if t.starts_with('#') {
+            i += 1;
+            continue;
+        }
+        break;
+    }
+    while i < lines.len() && !lines[i].trim().is_empty() {
+        let t = lines[i].trim();
+        if t.starts_with('#') || parse_charge_mult(t).is_some() {
+            break;
+        }
+        i += 1;
+    }
+    while i < lines.len() && lines[i].trim().is_empty() {
+        i += 1;
+    }
+    let cm_line = i;
+    if parse_charge_mult(lines.get(cm_line).unwrap_or(&"").trim()).is_none() {
+        return Err("gjf: missing charge/multiplicity line".into());
+    }
+    i = cm_line + 1;
+    let coord_start = i;
+    while i < lines.len() {
+        let t = lines[i].trim();
+        if t.is_empty() || t.starts_with("--") || t.starts_with('#') {
+            break;
+        }
+        i += 1;
+    }
+    let coord_end = i;
+    let mut out: Vec<String> = lines[..coord_start]
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect();
+    out.extend(new_lines.iter().cloned());
+    if coord_end < lines.len() {
+        out.extend(lines[coord_end..].iter().map(|s| (*s).to_string()));
+    }
+    Ok(out.join("\n") + "\n")
+}
+
 pub fn parse_gjf_geometry(source: &str) -> Result<MoleculeGeometry, String> {
     Ok(parse_gjf(source)?.geometry)
 }

@@ -1,6 +1,7 @@
 // PhysicsAtom standard library — molecular & atomic types (Phase 3 stub)
 // Backed by physlang-atom crate (periodic table, bond graph).
 
+// Single atom with Cartesian coordinates (Å or Bohr per context)
 struct Atom {
     element: Int
     x: Float
@@ -8,23 +9,26 @@ struct Atom {
     z: Float
 }
 
+// Bond between two atom indices
 struct Bond {
     a: Int
     b: Int
     order: Int
 }
 
+// Molecular graph container
 struct Molecule {
     name: String
     atoms: Int
     bonds: Int
 }
 
-// Lookup helpers — interpreter/native stubs
+// Element symbol from atomic number (native stub)
 fn element_symbol(z: Int) -> String {
     return ""
 }
 
+// Bond length in current length units
 fn bond_length(mol: Molecule, bond: Bond) -> Float {
     return 0.0
 }

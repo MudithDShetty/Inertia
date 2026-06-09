@@ -361,6 +361,36 @@ body,
   color: #4ec9b0;
 }
 
+.terminal-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 8px;
+  border-top: 1px solid #3c3c3c;
+  background: #252526;
+}
+
+.terminal-prompt {
+  color: #4ec9b0;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+}
+
+.terminal-input {
+  flex: 1;
+  background: #1e1e1e;
+  border: 1px solid #3c3c3c;
+  color: #d4d4d4;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 2px;
+}
+
+.terminal-input:focus {
+  outline: 1px solid #007acc;
+}
+
 .job-panel {
   border-top: 1px solid #3c3c3c;
   display: flex;
@@ -392,4 +422,176 @@ body,
   font-size: 11px;
   white-space: pre-wrap;
   color: #9cdcfe;
+}
+
+.sidebar-tabs {
+  display: flex;
+  border-bottom: 1px solid #3c3c3c;
+}
+
+.sidebar-tab {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #999;
+  padding: 6px 0;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sidebar-tab.active {
+  color: #fff;
+  border-bottom: 2px solid #0e639c;
+}
+
+.packages-panel {
+  flex: 1;
+  overflow: auto;
+  padding: 8px;
+  font-size: 12px;
+}
+
+.packages-panel button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: #9cdcfe;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-family: Consolas, monospace;
+}
+
+.packages-panel button:hover {
+  background: #2a2d2e;
+}
+
+.pkg-hint {
+  color: #858585;
+  font-size: 11px;
+  margin: 8px 0;
+}
+
+.pkg-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid #2d2d2d;
+}
+
+.pkg-name {
+  font-weight: 600;
+  min-width: 72px;
+  color: #cccccc;
+}
+
+.pkg-desc {
+  flex: 1;
+  font-size: 11px;
+  color: #858585;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-box {
+  background: #252526;
+  border: 1px solid #3c3c3c;
+  border-radius: 4px;
+  padding: 12px;
+  width: min(640px, 90vw);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.modal-box h3 {
+  margin: 0;
+  font-size: 13px;
+  color: #ccc;
+}
+
+.modal-textarea {
+  flex: 1;
+  min-height: 280px;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  background: #1e1e1e;
+  color: #ccc;
+  border: 1px solid #3c3c3c;
+  padding: 8px;
+  resize: vertical;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.notebook-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.notebook-panel.hidden {
+  display: none;
+}
+
+.notebook-cell-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #858585;
+  padding: 6px 10px 2px;
+  background: #252526;
+}
+
+.notebook-cell-editor {
+  flex: 1;
+  min-height: 120px;
+  border-bottom: 1px solid #3c3c3c;
+}
+
+.modal-wide {
+  width: min(720px, 92vw);
+  max-height: 85vh;
+  overflow: auto;
+}
+
+.struct-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: Consolas, monospace;
+}
+
+.struct-table th,
+.struct-table td {
+  border: 1px solid #3c3c3c;
+  padding: 4px 6px;
+}
+
+.struct-table input {
+  width: 100%;
+  background: #1e1e1e;
+  color: #ccc;
+  border: 1px solid #3c3c3c;
+  font-family: inherit;
+  font-size: inherit;
 }

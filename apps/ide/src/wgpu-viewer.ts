@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { save } from "@tauri-apps/plugin-dialog";
 
 export interface IdeCamera {
   yaw: number;
@@ -48,7 +49,7 @@ export async function renderFieldFrame(
   path: string,
   index: number,
   camera: IdeCamera,
-  mode?: "slice" | "isosurface",
+  mode?: "slice" | "isosurface" | "volume",
   isoLevel?: number,
   isoSign?: number,
   isoDual?: boolean,
@@ -74,4 +75,31 @@ export function debounce<T extends (...args: never[]) => void>(fn: T, ms: number
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => fn(...args), ms);
   }) as T;
+}
+
+/** Save PNG bytes via native save dialog. Returns chosen path or null if cancelled. */
+export async function savePngBytes(
+  png: number[],
+  defaultPath: string,
+): Promise<string | null> {
+  const selected = await save({
+    filters: [{ name: "PNG image", extensions: ["png"] }],
+    defaultPath,
+  });
+  if (!selected) return null;
+  await invoke("write_binary_file", { path: selected, data: png });
+  return selected;
+}
+
+/** Export a canvas element as PNG (2D fallback / vibration modes). */
+export async function saveCanvasPng(
+  canvas: HTMLCanvasElement,
+  defaultPath: string,
+): Promise<string | null> {
+  const blob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob(resolve, "image/png"),
+  );
+  if (!blob) return null;
+  const png = Array.from(new Uint8Array(await blob.arrayBuffer()));
+  return savePngBytes(png, defaultPath);
 }

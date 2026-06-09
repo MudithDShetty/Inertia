@@ -1,4 +1,4 @@
-# Contributing to PhysicsLang
+# Contributing to Inertia
 
 ## Dev setup
 

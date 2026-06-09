@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "title": "Getting Started",
+  "phys": "// Inertia notebook — tutorial cell 1\n// Open Folder on the repo root, then Run NB.\n\nfn drop_velocity(t: Float, g: Velocity) -> Velocity {\n    return g * t\n}\n\nfn main() -> Int {\n    let g: Velocity = 9.8 m/s\n    let v = drop_velocity(2.0 s, g)\n    return 0\n}",
+  "python": "# Cell 2 — Python analysis / plot-friendly output\nimport json\nimport math\n\nprint(json.dumps({\"demo\": \"Inertia notebook\", \"g_m_s2\": 9.8}))\nfor i in range(12):\n    e = -1.137 + 0.5 * math.exp(-0.3 * i)\n    print(f\"iter={i} energy={e:.6f}\")"
+}

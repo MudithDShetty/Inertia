@@ -3,6 +3,8 @@ import {
   debounce,
   pngBytesToDataUrl,
   renderFieldFrame,
+  saveCanvasPng,
+  savePngBytes,
   type IdeCamera,
 } from "./wgpu-viewer";
 
@@ -20,7 +22,7 @@ export interface FieldSliceData {
   wgpu_png?: number[];
 }
 
-export type FieldViewMode = "slice2d" | "slice3d" | "isosurface";
+export type FieldViewMode = "slice2d" | "slice3d" | "isosurface" | "volume";
 
 export class FieldViewer {
   private canvas: HTMLCanvasElement;
@@ -40,6 +42,7 @@ export class FieldViewer {
   private viewMode: FieldViewMode = "slice3d";
   private renderPending = false;
   private debouncedWgpu: () => void;
+  private lastPng: number[] | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -56,7 +59,7 @@ export class FieldViewer {
   }
 
   private isWgpuMode() {
-    return this.viewMode === "slice3d" || this.viewMode === "isosurface";
+    return this.viewMode === "slice3d" || this.viewMode === "isosurface" || this.viewMode === "volume";
   }
 
   private showCanvas() {
@@ -159,6 +162,10 @@ export class FieldViewer {
     return this.viewMode;
   }
 
+  getCameraParams(): IdeCamera {
+    return this.cameraParams();
+  }
+
   private cameraParams(): IdeCamera {
     const rect = this.canvas.parentElement?.getBoundingClientRect();
     const cssW = rect?.width ?? 640;
@@ -200,11 +207,21 @@ export class FieldViewer {
     this.yaw = 0.6;
     this.pitch = 0.35;
     this.zoom = 1.0;
+    this.lastPng = null;
     this.showCanvas();
     this.draw();
     if (this.isWgpuMode()) {
       void this.requestWgpuFrame();
     }
+  }
+
+  /** Export current view as PNG (wgpu frame or canvas fallback). */
+  async exportPng(defaultStem: string): Promise<string | null> {
+    const defaultPath = `${defaultStem}.png`;
+    if (this.lastPng?.length) {
+      return savePngBytes(this.lastPng, defaultPath);
+    }
+    return saveCanvasPng(this.canvas, defaultPath);
   }
 
   /** Slice change — preserve camera and view mode. */
@@ -238,7 +255,12 @@ export class FieldViewer {
   private async requestWgpuFrame() {
     if (!this.field?.path || this.viewMode === "slice2d" || this.renderPending) return;
     this.renderPending = true;
-    const mode = this.viewMode === "isosurface" ? "isosurface" : "slice";
+    const mode =
+      this.viewMode === "isosurface"
+        ? "isosurface"
+        : this.viewMode === "volume"
+          ? "volume"
+          : "slice";
     const moDual = this.viewMode === "isosurface" && this.isMoField();
     const result = await renderFieldFrame(
       this.field.path,
@@ -251,6 +273,7 @@ export class FieldViewer {
     );
     this.renderPending = false;
     if (!result?.png?.length) {
+      this.lastPng = null;
       this.showCanvas();
       if (this.viewMode === "slice3d") {
         this.drawSlice3dCanvas();
@@ -259,6 +282,7 @@ export class FieldViewer {
       }
       return;
     }
+    this.lastPng = result.png;
     this.img.src = pngBytesToDataUrl(result.png);
     this.showWgpu();
   }
